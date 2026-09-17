@@ -6,6 +6,7 @@ const { groq } = require('./config/ai');
 const { publicUrl } = require('./config/runtime');
 const oauth = require('./config/oauth');
 const { configured: emailConfigured, sendWelcomeEmail } = require('./config/mailer');
+const catalog = require('./config/sebpay-catalog');
 
 const router = express.Router();
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -58,44 +59,50 @@ async function sebpayJson(method, endpoint, body) {
   };
 }
 
-// Devise par pays (XOF par defaut, zone CEMAC en XAF, etc.)
-const SEBPAY_COUNTRY_CURRENCY = {
-  CM: 'XAF', CG: 'XAF', GA: 'XAF', TD: 'XAF', CF: 'XAF',
-  CD: 'CDF', GN: 'GNF', NG: 'NGN', GH: 'GHS', GM: 'GMD',
-  KE: 'KES', UG: 'UGX', TZ: 'TZS'
-};
+// Devise par pays : le catalogue fait autorite (zone CEMAC en XAF, CDF, GNF...)
 const sebpayCurrencyFor = (countryCode) =>
-  SEBPAY_COUNTRY_CURRENCY[String(countryCode || '').toUpperCase()] || SEBPAY_CURRENCY;
+  catalog.byCode(countryCode) ? catalog.currencyFor(countryCode) : SEBPAY_CURRENCY;
 
-// Cache court de GET /operators : la liste des slugs ne doit pas etre codee en dur
+// Cache court de GET /operators : la liste LIVE est prioritaire, le catalogue
+// local sert uniquement de repli si l'API SebPay est injoignable.
 let operatorsCache = { at: 0, list: [] };
 async function sebpayOperators() {
   if (Date.now() - operatorsCache.at < 10 * 60 * 1000 && operatorsCache.list.length) return operatorsCache.list;
-  const resp = await sebpayJson('GET', '/operators');
+  const resp = await sebpayJson('GET', '/operators').catch(() => ({ ok: false, data: {} }));
   const list = Array.isArray(resp.data) ? resp.data : (Array.isArray(resp.data.operators) ? resp.data.operators : []);
-  if (resp.ok && list.length) operatorsCache = { at: Date.now(), list };
-  return operatorsCache.list;
+  if (resp.ok && list.length) {
+    operatorsCache = { at: Date.now(), list };
+    return list;
+  }
+  return operatorsCache.list.length ? operatorsCache.list : catalog.OPERATORS;
 }
 async function sebpayOperator(slug) {
   const wanted = String(slug || '').trim().toLowerCase();
-  const list = await sebpayOperators().catch(() => []);
-  return list.find((o) => String(o.slug || '').toLowerCase() === wanted) || null;
+  const list = await sebpayOperators().catch(() => catalog.OPERATORS);
+  return list.find((o) => String(o.slug || '').toLowerCase() === wanted)
+    || catalog.OPERATORS.find((o) => o.slug === wanted)
+    || null;
+}
+// Opérateurs d'un pays donné (live si possible, sinon catalogue)
+async function sebpayOperatorsByCountry(countryCode) {
+  const code = String(countryCode || '').trim().toUpperCase();
+  const list = await sebpayOperators().catch(() => catalog.OPERATORS);
+  const filtered = list.filter((o) => String(o.country || '').toUpperCase() === code);
+  return filtered.length ? filtered : catalog.operatorsFor(code);
 }
 
-function normalizePhone(phone) {
-  return String(phone || '').replace(/\D/g, '').replace(/^00/, '');
+// SebPay exige un numero international SANS "+" : on prefixe avec l'indicatif du pays.
+function normalizePhone(phone, countryCode) {
+  const raw = String(phone || '').replace(/\D/g, '').replace(/^00/, '');
+  if (!raw) return '';
+  if (!countryCode) return raw;
+  return catalog.toInternational(raw, countryCode) || raw;
 }
 
 function sebpayCountryCode(countryCode, country) {
   const normalized = String(countryCode || '').trim().toUpperCase();
-  if (normalized.length === 2) return normalized;
-  const key = String(country || '').toLowerCase().trim();
-  return ({
-    'bénin': 'BJ', benin: 'BJ', 'côte d’ivoire': 'CI', "côte d'ivoire": 'CI', 'cote d ivoire': 'CI',
-    senegal: 'SN', 'sénégal': 'SN', cameroun: 'CM', togo: 'TG', mali: 'ML', niger: 'NE',
-    'burkina faso': 'BF', 'guinée': 'GN', guinee: 'GN', gabon: 'GA', ghana: 'GH', nigeria: 'NG',
-    'nigéria': 'NG', kenya: 'KE', tanzanie: 'TZ', ouganda: 'UG', congo: 'CG', 'r.d. congo': 'CD'
-  })[key] || 'BJ';
+  if (normalized.length === 2 && catalog.byCode(normalized)) return normalized;
+  return catalog.codeFromName(country) || '';
 }
 
 function sebpaySignatureIsValid(req) {
@@ -505,17 +512,38 @@ router.get('/campaigns/capacity', h(async (req, res) => {
   res.json({ users: r.rows[0].n, maxInteractions: r.rows[0].n });
 }));
 
-// Liste live des operateurs SebPay (slug + otp_required + ussd_code)
+// Liste des pays disponibles (code ISO, indicatif, devise)
+router.get('/sebpay/countries', h(async (req, res) => {
+  const live = await sebpayOperators().catch(() => []);
+  const available = new Set(live.map((o) => String(o.country || '').toUpperCase()));
+  const list = catalog.COUNTRIES
+    .filter((c) => (available.size ? available.has(c.code) : true))
+    .map((c) => ({ ...c }));
+  res.json({ success: true, data: list.length ? list : catalog.COUNTRIES });
+}));
+
+// Liste des operateurs d'un pays (slug + otp_required + ussd_code)
 router.get('/sebpay/operators', h(async (req, res) => {
   const country = String(req.query.country || '').trim().toUpperCase();
-  const resp = await sebpayJson('GET', '/operators' + (country ? '?country=' + encodeURIComponent(country) : ''));
-  if (!resp.ok) return res.status(502).json({ error: 'SebPay : ' + (resp.message || 'liste des opérateurs indisponible.') });
-  res.json({ success: true, data: Array.isArray(resp.data) ? resp.data : (resp.data.operators || []) });
+  const list = country ? await sebpayOperatorsByCountry(country) : await sebpayOperators();
+  res.json({
+    success: true,
+    data: list.map((o) => ({
+      slug: o.slug,
+      name: o.name || o.slug,
+      country: o.country,
+      otp_required: Boolean(o.otp_required),
+      ussd_code: o.ussd_code || null
+    }))
+  });
 }));
 
 // ========================= CAMPAGNES (CLIENT) =================
 router.post('/campaigns', authRequired, h(async (req, res) => {
-  const { link, interactions, operator, otp_code: otpCode } = req.body || {};
+  const {
+    link, interactions, operator, otp_code: otpCode,
+    country_code: bodyCountryCode, phone: bodyPhone
+  } = req.body || {};
   const n = parseInt(interactions, 10);
   const platform = detectPlatform(link);
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
@@ -529,26 +557,38 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const amount = n * PRICE_PER_INTERACTION;
   const me = await pool.query('SELECT nom, prenom, telephone, pays FROM users WHERE id = $1', [req.user.id]);
   const u = me.rows[0];
-  const phone = normalizePhone(u.telephone);
-  if (!phone) return res.status(400).json({ error: 'Ajoutez un numéro Mobile Money à votre compte avant de payer.' });
-  const ins = await pool.query(
-    'INSERT INTO campaigns (user_id, platform, link, interactions, amount) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-    [req.user.id, platform, link, n, amount]
-  );
-  const campaignId = ins.rows[0].id;
-  const externalReference = 'KORABOOST-CAMPAIGN-' + campaignId + '-' + crypto.randomBytes(5).toString('hex');
 
-  const operatorSlug = String(operator || SEBPAY_DEFAULT_OPERATOR).trim().toLowerCase();
-  const countryCode = sebpayCountryCode(null, u.pays);
-  const operatorInfo = await sebpayOperator(operatorSlug);
-  if (operatorInfo && operatorInfo.otp_required && !String(otpCode || '').trim()) {
-    await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
+  // 1) Pays : celui choisi dans le formulaire, sinon celui du profil
+  const countryCode = sebpayCountryCode(bodyCountryCode, u.pays);
+  if (!countryCode) return res.status(400).json({ error: 'Sélectionnez votre pays avant de payer.' });
+
+  // 2) Opérateur : doit appartenir au pays choisi (slug complet, ex. mtn-bj)
+  const operatorSlug = String(operator || '').trim().toLowerCase();
+  if (!operatorSlug) return res.status(400).json({ error: 'Sélectionnez votre réseau Mobile Money.' });
+  const countryOperators = await sebpayOperatorsByCountry(countryCode);
+  const operatorInfo = countryOperators.find((o) => String(o.slug).toLowerCase() === operatorSlug)
+    || await sebpayOperator(operatorSlug);
+  if (!operatorInfo || String(operatorInfo.country || countryCode).toUpperCase() !== countryCode)
+    return res.status(400).json({ error: "Ce réseau n'est pas disponible dans le pays sélectionné." });
+
+  // 3) Numéro : format international sans "+" exigé par SebPay
+  const phone = normalizePhone(bodyPhone || u.telephone, countryCode);
+  if (!phone) return res.status(400).json({ error: 'Saisissez le numéro Mobile Money qui doit payer.' });
+
+  if (operatorInfo.otp_required && !String(otpCode || '').trim()) {
     return res.status(400).json({
       error: 'Cet opérateur exige un code OTP. Composez ' + (operatorInfo.ussd_code || 'le code USSD de votre opérateur') + ' puis saisissez le code reçu.',
       otpRequired: true,
       ussdCode: operatorInfo.ussd_code || null
     });
   }
+
+  const ins = await pool.query(
+    'INSERT INTO campaigns (user_id, platform, link, interactions, amount) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [req.user.id, platform, link, n, amount]
+  );
+  const campaignId = ins.rows[0].id;
+  const externalReference = 'KORABOOST-CAMPAIGN-' + campaignId + '-' + crypto.randomBytes(5).toString('hex');
 
   const resp = await sebpayJson('POST', '/collections', {
     amount,
@@ -563,7 +603,10 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const payment = resp.data || {};
   if (!resp.ok || !payment.transaction_id) {
     await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
-    return res.status(502).json({ error: 'SebPay : ' + (resp.message || payment.message || 'impossible de créer le paiement.') });
+    const detail = resp.message || payment.message || 'impossible de créer le paiement.';
+    return res.status(502).json({
+      error: 'SebPay : ' + detail + ' (pays ' + countryCode + ', réseau ' + operatorSlug + ', HTTP ' + resp.status + ')'
+    });
   }
   await pool.query(
     'UPDATE campaigns SET mf_token=$2, payment_reference=$3, sebpay_transaction_id=$2 WHERE id=$1',
@@ -700,17 +743,16 @@ router.get('/tasks/history', authRequired, h(async (req, res) => {
 }));
 
 // ========================= RETRAITS ===========================
+// Pays + réseaux de retrait : même source que les paiements (live SebPay / catalogue)
 router.get('/withdraw/methods', authRequired, h(async (req, res) => {
-  res.json({
-    success: true,
-    data: [
-      { country: 'Bénin', code: 'BJ', currency: 'XOF', paymentMethods: [{ key: 'mtn-bj', name: 'MTN' }, { key: 'moov-bj', name: 'Moov' }, { key: 'celtiis-bj', name: 'Celtiis' }, { key: 'coris-bj', name: 'Coris' }] },
-      { country: "Côte d'Ivoire", code: 'CI', currency: 'XOF', paymentMethods: [{ key: 'mtn-ci', name: 'MTN' }, { key: 'orange-ci', name: 'Orange' }, { key: 'moov-ci', name: 'Moov' }, { key: 'wave-ci', name: 'Wave' }] },
-      { country: 'Sénégal', code: 'SN', currency: 'XOF', paymentMethods: [{ key: 'wave-sn', name: 'Wave' }, { key: 'orange-sn', name: 'Orange' }, { key: 'free-sn', name: 'Free Money' }] },
-      { country: 'Cameroun', code: 'CM', currency: 'XAF', paymentMethods: [{ key: 'mtn-cm', name: 'MTN' }, { key: 'orange-cm', name: 'Orange' }] },
-      { country: 'Togo', code: 'TG', currency: 'XOF', paymentMethods: [{ key: 'tmoney-tg', name: 'T-Money' }, { key: 'moov-tg', name: 'Moov' }] }
-    ]
-  });
+  const list = await sebpayOperators().catch(() => catalog.OPERATORS);
+  const data = catalog.COUNTRIES.map((c) => {
+    const ops = list.filter((o) => String(o.country || '').toUpperCase() === c.code);
+    const methods = (ops.length ? ops : catalog.operatorsFor(c.code))
+      .map((o) => ({ key: o.slug, name: o.name || o.slug }));
+    return { country: c.name, code: c.code, dial: c.dial, currency: c.currency, paymentMethods: methods };
+  }).filter((c) => c.paymentMethods.length);
+  res.json({ success: true, data });
 }));
 
 router.post('/withdrawals', authRequired, h(async (req, res) => {
@@ -741,7 +783,7 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
     const normalizedCountry = sebpayCountryCode(countryCode, country);
     const payout = await sebpayJson('POST', '/payouts', {
       recipient_name: 'Utilisateur KoraBoost #' + req.user.id,
-      phone: normalizePhone(phone),
+      phone: normalizePhone(phone, normalizedCountry),
       operator,
       country: normalizedCountry,
       amount: amt,

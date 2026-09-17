@@ -377,7 +377,7 @@ async function vWithdraw() {
       <label>Montant (minimum ${fcfa(S.rules.minWithdrawal)})</label>
       <input name="amount" type="number" min="${S.rules.minWithdrawal}" max="${user.balance}" value="${S.rules.minWithdrawal}" required>
       <label>Numéro de paiement</label>
-      <input name="phone" required placeholder="+229 XX XX XX XX">
+      <input name="phone" id="w-phone" required inputmode="tel" placeholder="Numéro Mobile Money">
     <p class="muted" style="font-size:.8rem">Les éventuels frais sont calculés et traités par SebPay, pas par cette plateforme.</p>
       <button class="btn btn-p" style="width:100%">Demander le retrait</button>
     </form>
@@ -398,14 +398,17 @@ async function vCampaigns() {
     <form id="f-campaign">
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
-      <label>Opérateur Mobile Money</label>
-      <input name="otp_code" placeholder="Code OTP (si votre opérateur le demande)" autocomplete="one-time-code">
-      <select name="operator" required>
-        <option value="mtn">MTN</option>
-        <option value="moov">Moov</option>
-        <option value="orange">Orange</option>
-        <option value="wave">Wave</option>
-      </select>
+      <label>Pays</label>
+      <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
+      <label>Réseau Mobile Money</label>
+      <select name="operator" id="c-operator" required><option value="">Choisissez d'abord un pays</option></select>
+      <label>Numéro Mobile Money à débiter</label>
+      <input name="phone" id="c-phone" required inputmode="tel" placeholder="Numéro du compte à débiter">
+      <div id="c-otp-box" style="display:none">
+        <label>Code OTP</label>
+        <p class="muted" style="font-size:.8rem" id="c-otp-hint"></p>
+        <input name="otp_code" id="c-otp" placeholder="Code reçu par USSD" autocomplete="one-time-code">
+      </div>
       <label>Nombre d'interactions souhaitées</label>
       <input name="interactions" id="c-n" type="number" min="1" max="${cap.maxInteractions}" value="1" required>
       <p>Prix : <b id="c-price">${fcfa(price)}</b> <span class="muted">(${price} FCFA / interaction)</span></p>
@@ -501,10 +504,12 @@ async function bindWithdraw() {
   const methods = await api('/withdraw/methods');
   const countries = methods.data || [];
   const selC = $('#w-country'), selM = $('#w-mode');
+  const selP = $('#w-phone');
   const fillModes = () => {
     const c = countries[Number(selC.value)];
     if (!c) return;
     selM.innerHTML = (c.paymentMethods || []).map(m => `<option value="${esc(m.key)}">${esc(m.name)}</option>`).join('');
+    if (selP && c.dial) selP.placeholder = '+' + c.dial + ' XX XX XX XX';
   };
   selC.onchange = fillModes;
   fillModes();
@@ -518,7 +523,7 @@ async function bindWithdraw() {
     };
     try {
       await api('/withdrawals', { method: 'POST', body });
-      alertMsg('✅ Demande de retrait envoyée à MoneyFusion.', 'ok');
+      alertMsg('✅ Demande de retrait envoyée.', 'ok');
       route();
     } catch (err) { alertMsg(err.message, 'err'); }
   };
@@ -537,20 +542,83 @@ function wdBadge(st) {
   return '<span class="badge b-r">❌ Échoué</span>';
 }
 
-function bindCampaign(price) {
+async function bindCampaign(price) {
   $('#c-n').oninput = (e) => { $('#c-price').textContent = fcfa((parseInt(e.target.value) || 0) * price); };
+
+  const selCountry = $('#c-operator') ? $('#c-country') : null;
+  const selOp = $('#c-operator');
+  const phone = $('#c-phone');
+  const otpBox = $('#c-otp-box'), otpHint = $('#c-otp-hint'), otpInput = $('#c-otp');
+  let countries = [], operators = [];
+
+  const currentCountry = () => countries.find((c) => c.code === (selCountry && selCountry.value));
+  const currentOperator = () => operators.find((o) => o.slug === (selOp && selOp.value));
+
+  const refreshOtp = () => {
+    const op = currentOperator();
+    const need = Boolean(op && op.otp_required);
+    otpBox.style.display = need ? '' : 'none';
+    otpInput.required = need;
+    otpHint.textContent = need
+      ? 'Composez ' + (op.ussd_code || 'le code USSD de votre opérateur') + ' sur votre téléphone, puis saisissez le code reçu.'
+      : '';
+  };
+
+  const loadOperators = async () => {
+    const c = currentCountry();
+    if (!c) return;
+    phone.placeholder = '+' + c.dial + ' XX XX XX XX';
+    selOp.innerHTML = '<option value="">Chargement…</option>';
+    try {
+      const r = await api('/sebpay/operators?country=' + encodeURIComponent(c.code));
+      operators = r.data || [];
+      selOp.innerHTML = operators.length
+        ? operators.map((o) => `<option value="${esc(o.slug)}">${esc(o.name)}</option>`).join('')
+        : '<option value="">Aucun réseau disponible</option>';
+    } catch {
+      operators = [];
+      selOp.innerHTML = '<option value="">Réseaux indisponibles, réessayez</option>';
+    }
+    refreshOtp();
+  };
+
+  if (selCountry) {
+    try {
+      const r = await api('/sebpay/countries');
+      countries = r.data || [];
+      selCountry.innerHTML = countries.map((c) => `<option value="${esc(c.code)}">${esc(c.name)} (+${esc(c.dial)})</option>`).join('');
+    } catch {
+      selCountry.innerHTML = '<option value="">Liste des pays indisponible</option>';
+    }
+    selCountry.onchange = loadOperators;
+    selOp.onchange = refreshOtp;
+    await loadOperators();
+  }
+
   $('#f-campaign').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const btn = e.target.querySelector('button');
+    if (btn) { btn.disabled = true; btn.textContent = 'Paiement en cours…'; }
     try {
       const r = await api('/campaigns', {
         method: 'POST',
-        body: { link: fd.get('link'), interactions: fd.get('interactions'), operator: fd.get('operator'), otp_code: fd.get('otp_code') || '' }
+        body: {
+          link: fd.get('link'),
+          interactions: fd.get('interactions'),
+          country_code: fd.get('country_code'),
+          operator: fd.get('operator'),
+          phone: fd.get('phone'),
+          otp_code: fd.get('otp_code') || ''
+        }
       });
       if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
-      alertMsg('Paiement SebPay initié. La page de confirmation va suivre le statut.', 'info');
+      alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
       window.location.href = r.successUrl;
-    } catch (err) { alertMsg(err.message, 'err'); }
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Payer avec SebPay'; }
+      alertMsg(err.message, 'err');
+    }
   };
 }
 
@@ -643,7 +711,7 @@ async function route() {
       case '#/taches': app.innerHTML = await vDashboard(); break;
       case '#/historique': app.innerHTML = await vHistory(); loadTx(); break;
       case '#/retrait': app.innerHTML = await vWithdraw(); bindWithdraw(); break;
-      case '#/campagnes': app.innerHTML = await vCampaigns(); bindCampaign((await api('/meta')).pricePerInteraction); break;
+      case '#/campagnes': app.innerHTML = await vCampaigns(); await bindCampaign((await api('/meta')).pricePerInteraction); break;
       default: app.innerHTML = vHome();
     }
   } catch (err) {
