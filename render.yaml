@@ -3,51 +3,28 @@ services:
     name: koraboost
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci
+    preDeployCommand: npm run db:init
     startCommand: npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/healthz
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: JWT_SECRET
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
         generateValue: true
       - key: ADMIN_EMAIL
-        value: sossoukouam@gmail.com
-      - key: ADMIN_PASSWORD
         sync: false
-      - key: GROQ_API_KEY
+      - key: PUBLIC_URL
         sync: false
-      - key: GOOGLE_CLIENT_ID
+      - key: RESEND_API_KEY
         sync: false
-      - key: GOOGLE_CLIENT_SECRET
+      - key: EMAIL_FROM
         sync: false
-      - key: FACEBOOK_APP_ID
-        sync: false
-      - key: FACEBOOK_APP_SECRET
-        sync: false
-      - key: SMTP_SERVICE
-        value: gmail
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "465"
-      - key: SMTP_SECURE
-        value: "true"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: MAIL_FROM
-        sync: false
-      - key: MONEYFUSION_API_URL
-        sync: false
-      - key: MONEYFUSION_PRIVATE_KEY
-        sync: false
-      - key: DATABASE_URL
-        fromDatabase:
-          name: koraboost-db
-          property: connectionString
-
-databases:
-  - name: koraboost-db
-    plan: free
+      - key: SEBPAY_BASE_URL
+        value: https://newapi.sebpay.bj
+      - key: TASK_REWARD
+        value: "3"
+      - key: PRICE_PER_INTERACTION
+        value: "1"
+      - key: MIN_WITHDRAWAL
+        value: "300"
