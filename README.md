@@ -1,39 +1,109 @@
-# KoraBoost — paquet de déploiement Render
+# KoraBoost
 
-Ce dossier est une version autonome de KoraBoost prête pour un **Web Service Render** :
+Plateforme de tâches sociales et de campagnes Facebook/TikTok, avec récompenses,
+retraits SebPay et assistant IA Kora.
 
-- frontend React compilé dans `public/` ;
-- API Express compilée dans `server.js` ;
-- initialisation idempotente de PostgreSQL dans `db-init.mjs` ;
-- configuration Render dans `render.yaml` ;
-- variables d’environnement documentées dans `.env.example`.
+## Lancer le projet
 
-## Flux client et participants
+```bash
+npm install
+npm start
+```
 
-Tous les comptes peuvent ouvrir le **Panneau client**. Ils y collent le lien
-de leur publication Facebook ou TikTok (ce n’est pas un lien de paiement),
-choisissent le nombre d’interactions et paient la campagne.
+Le serveur attend une base PostgreSQL dans `DATABASE_URL`. Copier `.env.example`
+dans la configuration d'environnement du serveur et renseigner les variables
+SebPay et JWT.
 
-Après confirmation du paiement, la campagne arrive dans la file de
-l’administrateur. Les tâches ne sont créées et visibles par les participants
-qu’après le bouton **Publier les tâches** dans la console admin. Une campagne
-refusée ne produit aucune tâche.
+## Paiements SebPay
 
-## Déploiement avec Blueprint Render
+Les campagnes utilisent la collecte SebPay (`POST /api/v1/collections`) avec
+`SEBPAY_PUBLIC_KEY` et `SEBPAY_SECRET_KEY`. Le serveur transmet un
+`external_reference` unique, puis attend le webhook signé HMAC-SHA256 sur :
 
-1. Importez ce dépôt ou ce dossier dans GitHub.
-2. Dans Render, choisissez **New > Blueprint** et sélectionnez le dépôt.
-3. Créez une base PostgreSQL Render.
-4. Renseignez `DATABASE_URL`, `ADMIN_EMAIL` et `PUBLIC_URL` dans les variables du service.
-5. Déployez. `npm run db:init` prépare automatiquement les tables avant le démarrage.
+```text
+https://votre-app.onrender.com/api/sebpay/webhook
+```
 
-Le contrôle de santé est disponible à `/api/healthz`.
+Après l'approbation du paiement, le navigateur ouvre `success.html`. Cette page
+interroge le serveur, affiche le lien Facebook/TikTok enregistré et permet au
+client de confirmer ce lien. La confirmation ne remplace pas la validation
+administrateur : elle verrouille seulement le lien présenté au client.
 
-## Déploiement manuel
+Les retraits utilisent également SebPay, avec le webhook :
 
-- **Build command :** `npm ci`
-- **Pre-deploy command :** `npm run db:init`
-- **Start command :** `npm start`
+```text
+https://votre-app.onrender.com/api/sebpay/withdrawal-webhook
+```
 
-Les paiements SebPay et les notifications Resend restent désactivés tant que leurs variables
-correspondantes ne sont pas configurées. Ne commitez jamais les vraies valeurs de secrets.
+Ne mettez jamais `SEBPAY_SECRET_KEY` dans le navigateur.
+
+## Administrateur
+
+Le compte administrateur est synchronisé au démarrage depuis `ADMIN_EMAIL` et
+`ADMIN_PASSWORD`. L'adresse prévue est `sossoukouam@gmail.com` ; renseignez le
+mot de passe directement dans les variables secrètes Render, jamais dans le
+code. La connexion admin accepte maintenant l'e-mail ou le téléphone.
+
+## Activer l'assistant Groq
+
+Ajouter ces variables dans Render, dans un fichier `.env` local ou dans le
+gestionnaire de secrets du serveur :
+
+```env
+GROQ_API_KEY=votre_cle_groq
+GROQ_MODEL=llama-3.1-8b-instant
+```
+
+La clé n'est jamais envoyée au navigateur. `config/ai.js` centralise
+l'endpoint, le modèle et la lecture de la variable d'environnement.
+
+## Vérifier Render après le déploiement
+
+Ouvrir `https://votre-app.onrender.com/api/health`. L'endpoint indique si
+PostgreSQL, JWT, l'URL publique, Groq, les paiements SebPay et les règles
+métier sont `ok`, `warning` ou `error`, sans révéler les valeurs sensibles.
+Le même diagnostic est disponible dans l'onglet **🩺 Configuration** de `/admin`.
+
+Un `render.yaml` est inclus : en déployant comme Blueprint, Render génère
+automatiquement `JWT_SECRET`, relie PostgreSQL et demande les secrets privés.
+`PUBLIC_URL` utilise automatiquement `RENDER_EXTERNAL_URL`. Si un domaine
+personnalisé est utilisé, définissez ensuite `PUBLIC_URL` avec ce domaine.
+
+## Inscription Google et Facebook
+
+Les boutons sociaux utilisent OAuth. Renseigner les identifiants de chaque
+fournisseur dans Render. Les URL de callback sont calculées automatiquement
+depuis `PUBLIC_URL` ou `RENDER_EXTERNAL_URL` :
+
+```text
+https://votre-app.onrender.com/api/auth/google/callback
+https://votre-app.onrender.com/api/auth/facebook/callback
+```
+
+Après la première connexion, le nom et l'e-mail du fournisseur sont enregistrés
+dans la base. Un mot de passe aléatoire est haché côté serveur pour le compte
+interne ; il n'est jamais affiché ni stocké en clair.
+
+## E-mails de bienvenue
+
+Après une inscription classique ou la première inscription via Google/Facebook,
+KoraBoost tente d'envoyer un e-mail de bienvenue. Un échec SMTP ne bloque pas
+la création du compte ni la connexion. Si le compte classique est créé avec un
+numéro de téléphone sans adresse e-mail, aucun e-mail ne peut être envoyé.
+
+Pour Gmail, activez la validation en deux étapes puis créez un mot de passe
+d'application. Dans Render, ajoutez uniquement les variables secrètes
+`SMTP_USER`, `SMTP_PASS` et `MAIL_FROM` ; vous pouvez laisser
+`SMTP_SERVICE=gmail`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465` et
+`SMTP_SECURE=true`. Ne commitez jamais le mot de passe d'application.
+
+Les identifiants et mots de passe qui ont été partagés avec l'archive doivent
+être considérés comme compromis : révoquez-les et générez de nouvelles valeurs
+dans Telegram, Render/PostgreSQL et Google avant de déployer. Le code fourni ne
+contient aucune de ces valeurs.
+
+## Identité visuelle
+
+Le site public utilise la marque **KoraBoost**, avec le slogan
+« Des interactions qui comptent ». Le bouton ✦ en bas à droite ouvre l'assistant
+Kora et les formulaires de captures affichent une progression de lecture/envoi.

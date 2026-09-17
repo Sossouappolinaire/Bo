@@ -16,9 +16,11 @@ const TASK_REWARD = parseFloat(process.env.TASK_REWARD || '3');
 const PRICE_PER_INTERACTION = parseFloat(process.env.PRICE_PER_INTERACTION || '1');
 const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL || '300');
 const PUBLIC_URL = publicUrl;
-const MF_API = (process.env.MONEYFUSION_API_URL || '').replace(/\/+$/, '');
-const MF_PRIVATE_KEY = process.env.MONEYFUSION_PRIVATE_KEY || '';
-const MF_PAYOUT = 'https://pay.moneyfusion.net/api/v1';
+const SEBPAY_API = (process.env.SEBPAY_API_URL || 'https://newapi.sebpay.bj/api/v1').replace(/\/+$/, '');
+const SEBPAY_PUBLIC_KEY = process.env.SEBPAY_PUBLIC_KEY || '';
+const SEBPAY_SECRET_KEY = process.env.SEBPAY_SECRET_KEY || '';
+const SEBPAY_CURRENCY = process.env.SEBPAY_CURRENCY || 'XOF';
+const SEBPAY_DEFAULT_OPERATOR = process.env.SEBPAY_DEFAULT_OPERATOR || 'mtn';
 
 const detectPlatform = (link) => {
   const l = (link || '').toLowerCase();
@@ -31,11 +33,39 @@ const logAction = (adminId, action, target, detail) =>
   pool.query('INSERT INTO admin_actions (admin_id, action, target, detail) VALUES ($1,$2,$3,$4)',
     [adminId, action, String(target), detail ? String(detail).slice(0, 500) : null]).catch(() => {});
 
-async function mfJson(method, url, body, headers) {
-  const opts = { method, headers: { 'Content-Type': 'application/json', ...(headers || {}) } };
+async function sebpayJson(method, endpoint, body) {
+  const opts = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(SEBPAY_PUBLIC_KEY ? { 'X-Public-Key': SEBPAY_PUBLIC_KEY } : {}),
+      ...(SEBPAY_SECRET_KEY ? { 'X-Secret-Key': SEBPAY_SECRET_KEY } : {})
+    }
+  };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  return r.json().catch(() => ({}));
+  const r = await fetch(endpoint.startsWith('http') ? endpoint : SEBPAY_API + endpoint, opts);
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+function normalizePhone(phone) {
+  return String(phone || '').replace(/\D/g, '').replace(/^00/, '');
+}
+
+function sebpayCountryCode(countryCode, country) {
+  const normalized = String(countryCode || '').trim().toUpperCase();
+  if (normalized.length === 2) return normalized;
+  const key = String(country || '').toLowerCase();
+  return ({ bénin: 'BJ', benin: 'BJ', 'côte d’ivoire': 'CI', "côte d'ivoire": 'CI', senegal: 'SN', sénégal: 'SN', cameroun: 'CM', togo: 'TG' })[key] || 'BJ';
+}
+
+function sebpaySignatureIsValid(req) {
+  if (!SEBPAY_SECRET_KEY) return false;
+  const received = String(req.get('X-SebPay-Signature') || '').trim().toLowerCase();
+  const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
+  const expected = crypto.createHmac('sha256', SEBPAY_SECRET_KEY).update(raw).digest('hex');
+  return Boolean(received) && received.length === expected.length
+    && crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected));
 }
 
 function cookieOptions() {
@@ -116,7 +146,7 @@ async function confirmCampaignPayment(campaignId, token, raw) {
   try {
     await client.query('BEGIN');
     const upd = await client.query(
-      "UPDATE campaigns SET payment_status='paid', status='pending_admin', mf_token=$2 WHERE id=$1 AND payment_status <> 'paid'",
+      "UPDATE campaigns SET payment_status='paid', status='pending_admin', mf_token=$2, sebpay_transaction_id=COALESCE($2, sebpay_transaction_id) WHERE id=$1 AND payment_status <> 'paid'",
       [campaignId, token || camp.mf_token]
     );
     if (upd.rowCount) {
@@ -282,212 +312,6 @@ async function deploymentHealth() {
       checks.push(check('PostgreSQL', true, 'error', 'DATABASE_URL existe mais la connexion échoue.'));
     }
   }
-  
-Bo
-/KoraBoost-Mise-A-Jour.md
-
-Preview
-
-Code
-
-Blame
-215 lines (189 loc) · 7.53 KB
-Guide de mise à jour KoraBoost (Dépôt Bo)
-Les deux seules modifications nécessaires par rapport à votre dépôt GitHub Sossouappolinaire/Bo sont dans config/mailer.js et routes.js.
-
-1. config/mailer.js
-Ajoutez la fonction notifyAdminOfPaidCampaign et exportez-la :
-
-async function notifyAdminOfPaidCampaign(input) {
-  const adminEmail = (process.env.ADMIN_EMAIL || '').trim();
-  const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
-
-  // Envoi via Resend si configuré
-  if (resendApiKey && adminEmail) {
-    try {
-      const from = (process.env.EMAIL_FROM || '').trim() || 'KoraBoost <onboarding@resend.dev>';
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + resendApiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from,
-          to: [adminEmail],
-          subject: 'KoraBoost — campagne payée #' + input.campaignId + ' à traiter',
-          html: '<div style="font-family:sans-serif;padding:20px;background:#f8fafc;color:#1e293b">' +
-            '<h2>Nouvelle campagne payée</h2>' +
-            '<p>Le client a confirmé les informations suivantes après son paiement :</p>' +
-            '<ul>' +
-              '<li><strong>Campagne :</strong> #' + input.campaignId + '</li>' +
-              '<li><strong>Client :</strong> ' + escapeHtml(input.customerName) + '</li>' +
-              '<li><strong>E-mail :</strong> ' + escapeHtml(input.customerEmail) + '</li>' +
-              '<li><strong>Montant :</strong> ' + Number(input.amount).toLocaleString('fr-FR') + ' FCFA</li>' +
-              '<li><strong>Plateforme :</strong> ' + escapeHtml(input.platform) + '</li>' +
-            '</ul>' +
-            '<p><strong>Lien :</strong> <a href="' + escapeHtml(input.link) + '">' + escapeHtml(input.link) + '</a></p>' +
-          '</div>'
-        })
-      });
-      if (res.ok) return { sent: true, provider: 'resend' };
-    } catch (e) {
-      console.error('[NOTIF] Erreur Resend:', e.message);
-    }
-  }
-
-  // Fallback SMTP (Nodemailer)
-  if (transporter && adminEmail) {
-    try {
-      await transporter.sendMail({
-        from: mailFrom,
-        to: adminEmail,
-        subject: 'KoraBoost — Campagne payée #' + input.campaignId,
-        text: 'Nouvelle campagne payée #' + input.campaignId + ' par ' + input.customerName + ' (' + input.customerEmail + '). Lien: ' + input.link,
-        html: '<div style="font-family:sans-serif;padding:20px;background:#0a0f1e;color:#fff;border-radius:10px">' +
-          '<h2 style="color:#56e39f">Nouvelle campagne payée #' + input.campaignId + '</h2>' +
-          '<p><strong>Client :</strong> ' + escapeHtml(input.customerName) + ' (' + escapeHtml(input.customerEmail) + ')</p>' +
-          '<p><strong>Montant :</strong> ' + Number(input.amount).toLocaleString('fr-FR') + ' FCFA</p>' +
-          '<p><strong>Plateforme :</strong> ' + escapeHtml(input.platform) + '</p>' +
-          '<p><strong>Lien :</strong> <a style="color:#7c8cff" href="' + escapeHtml(input.link) + '">' + escapeHtml(input.link) + '</a></p>' +
-        '</div>'
-      });
-      return { sent: true, provider: 'smtp' };
-    } catch (e) {
-      console.error('[NOTIF] Erreur SMTP:', e.message);
-    }
-  }
-
-  return { sent: false, reason: 'Aucun service email configuré.' };
-}
-
-module.exports = {
-  notifyAdminOfPaidCampaign,
-  configured,
-  smtpUser,
-  sendWelcomeEmail
-};
-2. routes.js
-Ajoutez les deux routes suivantes (juste avant router.get('/campaigns/mine', ...)):
-
-// Confirmation post-paiement par le client
-router.post('/campaigns/:campaignId/success-confirmation', authRequired, h(async (req, res) => {
-  const campaignId = Number(req.params.campaignId);
-  const { link, email } = req.body || {};
-  if (!campaignId || !link || !email) {
-    throw httpError(400, "Le lien et l'e-mail sont requis.");
-  }
-
-  const campaignRes = await pool.query(
-    `SELECT c.id, c.platform, c.link, c.amount, c.payment_status,
-            u.prenom || ' ' || u.nom AS customer_name
-       FROM campaigns c
-       JOIN users u ON u.id = c.user_id
-      WHERE c.id = $1 AND c.user_id = $2`,
-    [campaignId, req.user.id]
-  );
-  const campaign = campaignRes.rows[0];
-  if (!campaign) throw httpError(404, 'Campagne introuvable.');
-
-  const target = String(campaign.id);
-  const existing = await pool.query(
-    `SELECT id, detail, created_at
-       FROM admin_actions
-      WHERE action = 'campaign_success_confirmed' AND target = $1
-      ORDER BY id DESC LIMIT 1`,
-    [target]
-  );
-
-  if (existing.rows[0]) {
-    const detail = (existing.rows[0].detail ? JSON.parse(existing.rows[0].detail) : {});
-    return res.json({
-      id: Number(existing.rows[0].id),
-      campaignId: Number(campaign.id),
-      link: String(detail.link || campaign.link),
-      email: String(detail.email || email),
-      notificationSent: Boolean(detail.notificationSent),
-      createdAt: new Date(existing.rows[0].created_at).toISOString()
-    });
-  }
-
-  const detail = {
-    campaignId: Number(campaign.id),
-    platform: campaign.platform,
-    link: String(link).trim(),
-    email: String(email).trim().toLowerCase(),
-    customerName: campaign.customer_name,
-    amount: Number(campaign.amount),
-    notificationSent: false
-  };
-
-  const inserted = await pool.query(
-    `INSERT INTO admin_actions (admin_id, action, target, detail)
-     VALUES (NULL, 'campaign_success_confirmed', $1, $2)
-     RETURNING id, created_at`,
-    [target, JSON.stringify(detail)]
-  );
-
-  let notificationSent = false;
-  let notificationReason = null;
-  try {
-    const { notifyAdminOfPaidCampaign } = require('./config/mailer');
-    if (typeof notifyAdminOfPaidCampaign === 'function') {
-      const notif = await notifyAdminOfPaidCampaign({
-        campaignId: detail.campaignId,
-        platform: detail.platform,
-        link: detail.link,
-        customerEmail: detail.email,
-        customerName: detail.customerName,
-        amount: detail.amount
-      });
-      notificationSent = Boolean(notif && notif.sent);
-      notificationReason = notif && notif.reason;
-    }
-  } catch (err) {
-    notificationReason = err.message;
-  }
-
-  await pool.query(
-    `UPDATE admin_actions
-        SET detail = $1
-      WHERE id = $2`,
-    [JSON.stringify({ ...detail, notificationSent, notificationReason }), inserted.rows[0].id]
-  );
-
-  res.status(201).json({
-    id: Number(inserted.rows[0].id),
-    campaignId: detail.campaignId,
-    link: detail.link,
-    email: detail.email,
-    notificationSent,
-    createdAt: new Date(inserted.rows[0].created_at).toISOString()
-  });
-}));
-
-// Consultation des confirmations par l'admin
-router.get('/admin/campaign-confirmations', adminRequired, h(async (req, res) => {
-  const result = await pool.query(
-    `SELECT id, target, detail, created_at
-       FROM admin_actions
-      WHERE action = 'campaign_success_confirmed'
-      ORDER BY created_at DESC
-      LIMIT 100`
-  );
-
-  res.json(result.rows.map((row) => {
-    let detail = {};
-    try { detail = row.detail ? JSON.parse(row.detail) : {}; } catch (_) {}
-    return {
-      id: Number(row.id),
-      campaignId: Number(row.target),
-      platform: String(detail.platform || ''),
-      link: String(detail.link || ''),
-      email: String(detail.email || ''),
-      notificationSent: Boolean(detail.notificationSent),
-      createdAt: new Date(row.created_at).toISOString()
-    };
-  }));
-}));
 
   const jwtConfigured = envSet(process.env.JWT_SECRET);
   checks.push(check(
@@ -524,17 +348,21 @@ router.get('/admin/campaign-confirmations', adminRequired, h(async (req, res) =>
     false
   ));
   checks.push(check(
-    'Paiements MoneyFusion',
-    MF_API.length > 0,
-    MF_API.length > 0 ? 'ok' : 'warning',
-    MF_API.length > 0 ? 'URL de paiement configurée.' : 'MONEYFUSION_API_URL manque : les campagnes ne pourront pas être payées.',
+    'Paiements SebPay',
+    Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY),
+    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY ? 'ok' : 'warning',
+    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
+      ? 'Clés SebPay détectées.'
+      : 'SEBPAY_PUBLIC_KEY et SEBPAY_SECRET_KEY manquent : les campagnes ne pourront pas être payées.',
     false
   ));
   checks.push(check(
-    'Retraits MoneyFusion',
-    MF_PRIVATE_KEY.length > 0,
-    MF_PRIVATE_KEY.length > 0 ? 'ok' : 'warning',
-    MF_PRIVATE_KEY.length > 0 ? 'Clé de décaissement détectée.' : 'MONEYFUSION_PRIVATE_KEY manque : les retraits seront bloqués.',
+    'Retraits SebPay',
+    Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY),
+    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY ? 'ok' : 'warning',
+    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
+      ? 'Clés SebPay détectées pour les décaissements.'
+      : 'Les clés SebPay manquent : les retraits seront bloqués.',
     false
   ));
   const googleConfigured = envSet(oauth.google.clientId) && envSet(oauth.google.clientSecret);
@@ -640,7 +468,7 @@ router.get('/campaigns/capacity', h(async (req, res) => {
 
 // ========================= CAMPAGNES (CLIENT) =================
 router.post('/campaigns', authRequired, h(async (req, res) => {
-  const { link, interactions } = req.body || {};
+  const { link, interactions, operator } = req.body || {};
   const n = parseInt(interactions, 10);
   const platform = detectPlatform(link);
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
@@ -648,60 +476,94 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const cap = await pool.query("SELECT count(*)::int AS n FROM users WHERE role='user' AND status='active'");
   if (n > cap.rows[0].n)
     return res.status(400).json({ error: 'Capacité dépassée : ' + cap.rows[0].n + ' utilisateur(s) actif(s) au maximum pour le moment.' });
-  if (!MF_API) return res.status(500).json({ error: 'Paiement non configuré (MONEYFUSION_API_URL manquant côté serveur).' });
+  if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY)
+    return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
   const amount = n * PRICE_PER_INTERACTION;
   const me = await pool.query('SELECT nom, prenom, telephone FROM users WHERE id = $1', [req.user.id]);
   const u = me.rows[0];
+  const phone = normalizePhone(u.telephone);
+  if (!phone) return res.status(400).json({ error: 'Ajoutez un numéro Mobile Money à votre compte avant de payer.' });
   const ins = await pool.query(
     'INSERT INTO campaigns (user_id, platform, link, interactions, amount) VALUES ($1,$2,$3,$4,$5) RETURNING id',
     [req.user.id, platform, link, n, amount]
   );
   const campaignId = ins.rows[0].id;
+  const externalReference = 'KORABOOST-CAMPAIGN-' + campaignId + '-' + crypto.randomBytes(5).toString('hex');
 
-  const resp = await mfJson('POST', MF_API, {
-    total_price: String(amount),
-    articles: [{ name: 'Campagne ' + platform + ' #' + campaignId, price: String(amount), quantity: 1 }],
-    numero_send: u.telephone,
-    nomclient: (u.prenom + ' ' + u.nom).slice(0, 50),
-    return_url: PUBLIC_URL + '/api/moneyfusion/return',
-    webhook_url: PUBLIC_URL + '/api/moneyfusion/webhook',
-    personal_Info: [{ campaignId: campaignId, userId: req.user.id }]
+  const resp = await sebpayJson('POST', '/collections', {
+    amount,
+    currency: SEBPAY_CURRENCY,
+    phone,
+    operator: String(operator || SEBPAY_DEFAULT_OPERATOR).trim().toLowerCase(),
+    country: sebpayCountryCode(u.pays),
+    external_reference: externalReference,
+    callback_url: PUBLIC_URL + '/api/sebpay/webhook'
   });
-  if (!resp || resp.statut !== true || !resp.url) {
+  const payment = resp.data || {};
+  if (!resp.ok || !payment.transaction_id) {
     await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
-    return res.status(502).json({ error: 'MoneyFusion : ' + ((resp && resp.message) || 'impossible de créer le paiement.') });
+    return res.status(502).json({ error: 'SebPay : ' + (payment.message || 'impossible de créer le paiement.') });
   }
-  await pool.query('UPDATE campaigns SET mf_token = $2 WHERE id = $1', [campaignId, resp.token]);
-  res.json({ campaignId, amount, payUrl: resp.url });
+  await pool.query(
+    'UPDATE campaigns SET mf_token=$2, payment_reference=$3, sebpay_transaction_id=$2 WHERE id=$1',
+    [campaignId, payment.transaction_id, externalReference]
+  );
+  res.json({
+    campaignId,
+    amount,
+    paymentStatus: payment.status || 'pending',
+    payUrl: payment.provider_link || null,
+    successUrl: '/success.html?campaign=' + encodeURIComponent(campaignId)
+  });
 }));
 
-// Retour client apres paiement (redirection navigateur)
-router.get('/moneyfusion/return', h(async (req, res) => {
-  const token = req.query.token;
-  if (!token) return res.redirect('/?paiement=annule');
-  const camp = await pool.query('SELECT id FROM campaigns WHERE mf_token = $1', [token]);
-  let ok = false;
-  if (camp.rowCount) {
-    const st = await mfJson('GET', MF_API + '/' + token);
-    if (st && st.statut === true && st.data && st.data.statut === 'paid') {
-      await confirmCampaignPayment(camp.rows[0].id, token, st.data);
-      ok = true;
-    }
-  }
-  res.redirect('/?paiement=' + (ok ? 'confirme' : 'en_attente'));
-}));
-
-// Webhook serveur-a-serveur MoneyFusion (confirmation fiable)
-router.post('/moneyfusion/webhook', h(async (req, res) => {
+// Webhook serveur-a-serveur SebPay (confirmation fiable et signée)
+router.post('/sebpay/webhook', h(async (req, res) => {
+  if (!sebpaySignatureIsValid(req)) return res.status(401).json({ error: 'Signature SebPay invalide.' });
   const b = req.body || {};
-  const token = b.tokenPay || b.token;
-  const statut = b.statut || (b.data && b.data.statut);
-  if (token && statut === 'paid') {
-    const camp = await pool.query('SELECT id FROM campaigns WHERE mf_token = $1', [token]);
-    if (camp.rowCount) await confirmCampaignPayment(camp.rows[0].id, token, b);
+  const reference = String(b.external_reference || '').trim();
+  const transactionId = String(b.transaction_id || '').trim();
+  const camp = await pool.query(
+    'SELECT id FROM campaigns WHERE payment_reference=$1 OR sebpay_transaction_id=$2 LIMIT 1',
+    [reference || '__missing__', transactionId || '__missing__']
+  );
+  if (camp.rowCount && b.status === 'approved') {
+    await confirmCampaignPayment(camp.rows[0].id, transactionId || reference, b);
+  } else if (camp.rowCount && b.status === 'rejected') {
+    await pool.query(
+      "UPDATE campaigns SET payment_status='rejected', status='rejected' WHERE id=$1 AND payment_status <> 'paid'",
+      [camp.rows[0].id]
+    );
   }
   res.json({ received: true });
+}));
+
+router.get('/campaigns/:id/payment-status', authRequired, h(async (req, res) => {
+  const r = await pool.query(
+    `SELECT c.id, c.platform, c.link, c.amount, c.interactions, c.status, c.payment_status,
+            c.link_confirmed_at, c.payment_reference, c.sebpay_transaction_id
+     FROM campaigns c WHERE c.id=$1 AND c.user_id=$2`,
+    [req.params.id, req.user.id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'Campagne introuvable.' });
+  const c = r.rows[0];
+  res.json({
+    ...c,
+    amount: Number(c.amount),
+    linkConfirmed: Boolean(c.link_confirmed_at)
+  });
+}));
+
+router.post('/campaigns/:id/confirm-link', authRequired, h(async (req, res) => {
+  const r = await pool.query(
+    `UPDATE campaigns SET link_confirmed_at=COALESCE(link_confirmed_at, now())
+     WHERE id=$1 AND user_id=$2 AND payment_status='paid'
+     RETURNING id, link, link_confirmed_at`,
+    [req.params.id, req.user.id]
+  );
+  if (!r.rowCount) return res.status(409).json({ error: 'Le paiement doit être confirmé avant de confirmer le lien.' });
+  res.json({ ok: true, link: r.rows[0].link, linkConfirmed: true });
 }));
 
 router.get('/campaigns/mine', authRequired, h(async (req, res) => {
@@ -779,21 +641,16 @@ router.get('/tasks/history', authRequired, h(async (req, res) => {
 
 // ========================= RETRAITS ===========================
 router.get('/withdraw/methods', authRequired, h(async (req, res) => {
-  if (!MF_PRIVATE_KEY) {
-    // Fallback statique si la cle payout n'est pas encore configuree
-    return res.json({
-      success: true, fallback: true, data: [
-        { country: 'Bénin', code: 'bj', currency: 'XOF', paymentMethods: [{ key: 'mtn-bj', name: 'MTN' }, { key: 'moov-bj', name: 'Moov' }, { key: 'orange-money-bj', name: 'Orange' }] },
-        { country: "Côte d'Ivoire", code: 'ci', currency: 'XOF', paymentMethods: [{ key: 'mtn-ci', name: 'MTN' }, { key: 'orange-money-ci', name: 'Orange' }, { key: 'moov-ci', name: 'Moov' }, { key: 'wave-ci', name: 'Wave' }] },
-        { country: 'Sénégal', code: 'sn', currency: 'XOF', paymentMethods: [{ key: 'wave-sn', name: 'Wave' }, { key: 'orange-money-sn', name: 'Orange' }] },
-        { country: 'Cameroun', code: 'cm', currency: 'XAF', paymentMethods: [{ key: 'mtn-cm', name: 'MTN' }, { key: 'orange-money-cm', name: 'Orange' }] },
-        { country: 'Togo', code: 'tg', currency: 'XOF', paymentMethods: [{ key: 'togocom-tg', name: 'Togocom' }] }
-      ]
-    });
-  }
-  const r = await fetch(MF_PAYOUT + '/withdraw/methods', { headers: { 'moneyfusion-private-key': MF_PRIVATE_KEY } });
-  const j = await r.json().catch(() => ({}));
-  res.json(j && j.data ? j : { success: false, data: [] });
+  res.json({
+    success: true,
+    data: [
+      { country: 'Bénin', code: 'BJ', currency: 'XOF', paymentMethods: [{ key: 'mtn-bj', name: 'MTN' }, { key: 'moov-bj', name: 'Moov' }, { key: 'orange-bj', name: 'Orange' }] },
+      { country: "Côte d'Ivoire", code: 'CI', currency: 'XOF', paymentMethods: [{ key: 'mtn-ci', name: 'MTN' }, { key: 'orange-ci', name: 'Orange' }, { key: 'moov-ci', name: 'Moov' }, { key: 'wave-ci', name: 'Wave' }] },
+      { country: 'Sénégal', code: 'SN', currency: 'XOF', paymentMethods: [{ key: 'wave-sn', name: 'Wave' }, { key: 'orange-sn', name: 'Orange' }] },
+      { country: 'Cameroun', code: 'CM', currency: 'XAF', paymentMethods: [{ key: 'mtn-cm', name: 'MTN' }, { key: 'orange-cm', name: 'Orange' }] },
+      { country: 'Togo', code: 'TG', currency: 'XOF', paymentMethods: [{ key: 'togocom-tg', name: 'togocom' }] }
+    ]
+  });
 }));
 
 router.post('/withdrawals', authRequired, h(async (req, res) => {
@@ -803,7 +660,8 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
     return res.status(400).json({ error: 'Retrait impossible. Vous devez avoir au moins ' + MIN_WITHDRAWAL + ' FCFA dans votre solde.' });
   if (!country || !countryCode || !phone || !withdraw_mode)
     return res.status(400).json({ error: 'Pays, numéro et méthode de retrait obligatoires.' });
-  if (!MF_PRIVATE_KEY) return res.status(500).json({ error: 'Décaissement non configuré (MONEYFUSION_PRIVATE_KEY manquant côté serveur).' });
+  if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY)
+    return res.status(500).json({ error: 'Décaissement non configuré (clés SebPay manquantes côté serveur).' });
 
   const client = await pool.connect();
   try {
@@ -818,35 +676,45 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
     await client.query("INSERT INTO transactions (user_id, type, amount, ref) VALUES ($1,'withdraw_reserve',$2,$3)",
       [req.user.id, amt, 'retrait #' + w.rows[0].id]);
 
-    // Les frais et le traitement du decaissement sont geres par MoneyFusion
-    const payout = await mfJson('POST', MF_PAYOUT + '/withdraw', {
-      countryCode, phone, amount: amt, withdraw_mode,
-      webhook_url: PUBLIC_URL + '/api/moneyfusion/withdraw/callback'
-    }, { 'moneyfusion-private-key': MF_PRIVATE_KEY });
-    if (!payout || payout.statut !== true)
-      throw httpError(502, 'MoneyFusion : ' + ((payout && payout.message) || 'décaissement refusé.'));
-    await client.query('UPDATE withdrawals SET mf_token = $2 WHERE id = $1', [w.rows[0].id, payout.tokenPay]);
+    const payoutReference = 'KORABOOST-WITHDRAW-' + w.rows[0].id + '-' + crypto.randomBytes(5).toString('hex');
+    const operator = String(withdraw_mode).split('-')[0].toLowerCase();
+    const normalizedCountry = sebpayCountryCode(countryCode, country);
+    const payout = await sebpayJson('POST', '/payouts', {
+      recipient_name: 'Utilisateur KoraBoost #' + req.user.id,
+      phone: normalizePhone(phone),
+      operator,
+      country: normalizedCountry,
+      amount: amt,
+      currency: normalizedCountry === 'CM' ? 'XAF' : 'XOF',
+      external_reference: payoutReference,
+      callback_url: PUBLIC_URL + '/api/sebpay/withdrawal-webhook',
+      description: 'Retrait KoraBoost #' + w.rows[0].id
+    });
+    if (!payout.ok || !payout.data || !payout.data.transaction_id)
+      throw httpError(502, 'SebPay : ' + ((payout.data && payout.data.message) || 'décaissement refusé.'));
+    await client.query('UPDATE withdrawals SET mf_token = $2 WHERE id = $1', [w.rows[0].id, payoutReference]);
     await client.query('COMMIT');
-    res.json({ ok: true, withdrawalId: w.rows[0].id, token: payout.tokenPay });
+    res.json({ ok: true, withdrawalId: w.rows[0].id, transactionId: payout.data.transaction_id });
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }));
 
-// Webhook decaissement MoneyFusion
-router.post('/moneyfusion/withdraw/callback', h(async (req, res) => {
-  const { event, tokenPay } = req.body || {};
-  if (tokenPay) {
-    const w = await pool.query('SELECT * FROM withdrawals WHERE mf_token = $1', [tokenPay]);
+// Webhook de décaissement SebPay
+router.post('/sebpay/withdrawal-webhook', h(async (req, res) => {
+  if (!sebpaySignatureIsValid(req)) return res.status(401).json({ error: 'Signature SebPay invalide.' });
+  const { external_reference: reference, status } = req.body || {};
+  if (reference) {
+    const w = await pool.query('SELECT * FROM withdrawals WHERE mf_token = $1', [reference]);
     if (w.rowCount && w.rows[0].status === 'pending') {
       const wd = w.rows[0];
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        if (event === 'payout.session.completed') {
+        if (status === 'approved') {
           await client.query("UPDATE withdrawals SET status='success', updated_at=now() WHERE id=$1", [wd.id]);
           await client.query('UPDATE users SET reserved = reserved - $2 WHERE id=$1', [wd.user_id, wd.amount]);
           await client.query("INSERT INTO transactions (user_id, type, amount, ref) VALUES ($1,'withdraw_debit',$2,$3)",
             [wd.user_id, wd.amount, 'retrait #' + wd.id + ' confirmé']);
-        } else if (event === 'payout.session.cancelled') {
+        } else if (status === 'rejected') {
           await client.query("UPDATE withdrawals SET status='failed', updated_at=now() WHERE id=$1", [wd.id]);
           await client.query('UPDATE users SET reserved = reserved - $2, balance = balance + $2 WHERE id=$1', [wd.user_id, wd.amount]);
           await client.query("INSERT INTO transactions (user_id, type, amount, ref) VALUES ($1,'withdraw_release',$2,$3)",
@@ -920,6 +788,8 @@ router.post('/admin/campaigns/:id/decision', adminRequired, h(async (req, res) =
     if (!c.rowCount) throw httpError(404, 'Campagne introuvable.');
     if (c.rows[0].status !== 'pending_admin' || c.rows[0].payment_status !== 'paid')
       throw httpError(409, 'Campagne non payable ou déjà traitée.');
+    if (approve && !c.rows[0].link_confirmed_at)
+      throw httpError(409, 'Le client doit confirmer le lien depuis success.html avant validation.');
     if (approve) {
       await client.query("UPDATE campaigns SET status='active', admin_note=$2 WHERE id=$1", [req.params.id, note || null]);
       await client.query(

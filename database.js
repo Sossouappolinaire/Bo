@@ -37,11 +37,17 @@ CREATE TABLE IF NOT EXISTS campaigns (
   interactions INT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   mf_token VARCHAR(120),
+  payment_reference VARCHAR(160),
+  sebpay_transaction_id VARCHAR(120),
+  link_confirmed_at TIMESTAMPTZ,
   payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
   status VARCHAR(20) NOT NULL DEFAULT 'pending_payment',
   admin_note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(160);
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sebpay_transaction_id VARCHAR(120);
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS link_confirmed_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   campaign_id INT NOT NULL REFERENCES campaigns(id),

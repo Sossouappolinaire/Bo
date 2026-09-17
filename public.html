@@ -345,7 +345,7 @@ async function vWithdraw() {
       <input name="amount" type="number" min="${S.rules.minWithdrawal}" max="${user.balance}" value="${S.rules.minWithdrawal}" required>
       <label>Numéro de paiement</label>
       <input name="phone" required placeholder="+229 XX XX XX XX">
-      <p class="muted" style="font-size:.8rem">Les éventuels frais sont calculés et traités par MoneyFusion, pas par cette plateforme.</p>
+    <p class="muted" style="font-size:.8rem">Les éventuels frais sont calculés et traités par SebPay, pas par cette plateforme.</p>
       <button class="btn btn-p" style="width:100%">Demander le retrait</button>
     </form>
   </div>
@@ -365,10 +365,17 @@ async function vCampaigns() {
     <form id="f-campaign">
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
+      <label>Opérateur Mobile Money</label>
+      <select name="operator" required>
+        <option value="mtn">MTN</option>
+        <option value="moov">Moov</option>
+        <option value="orange">Orange</option>
+        <option value="wave">Wave</option>
+      </select>
       <label>Nombre d'interactions souhaitées</label>
       <input name="interactions" id="c-n" type="number" min="1" max="${cap.maxInteractions}" value="1" required>
       <p>Prix : <b id="c-price">${fcfa(price)}</b> <span class="muted">(${price} FCFA / interaction)</span></p>
-      <button class="btn btn-b" style="width:100%">Payer avec MoneyFusion</button>
+      <button class="btn btn-b" style="width:100%">Payer avec SebPay</button>
     </form>
   </div>
   <div class="card">
@@ -502,9 +509,13 @@ function bindCampaign(price) {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
-      const r = await api('/campaigns', { method: 'POST', body: { link: fd.get('link'), interactions: fd.get('interactions') } });
-      alertMsg('Redirection vers MoneyFusion…', 'info');
-      window.location.href = r.payUrl;
+      const r = await api('/campaigns', {
+        method: 'POST',
+        body: { link: fd.get('link'), interactions: fd.get('interactions'), operator: fd.get('operator') }
+      });
+      if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+      alertMsg('Paiement SebPay initié. La page de confirmation va suivre le statut.', 'info');
+      window.location.href = r.successUrl;
     } catch (err) { alertMsg(err.message, 'err'); }
   };
 }
