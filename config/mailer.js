@@ -32,7 +32,75 @@ function escapeHtml(value) {
 function displayName(user) {
   return [user.prenom, user.nom].filter(Boolean).join(' ').trim() || 'Utilisateur';
 }
+async function notifyAdminOfPaidCampaign(input) {
+  const adminEmail = (process.env.ADMIN_EMAIL || '').trim();
+  const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
 
+  // Envoi via Resend si configuré
+  if (resendApiKey && adminEmail) {
+    try {
+      const from = (process.env.EMAIL_FROM || '').trim() || 'KoraBoost <onboarding@resend.dev>';
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + resendApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from,
+          to: [adminEmail],
+          subject: 'KoraBoost — campagne payée #' + input.campaignId + ' à traiter',
+          html: '<div style="font-family:sans-serif;padding:20px;background:#f8fafc;color:#1e293b">' +
+            '<h2>Nouvelle campagne payée</h2>' +
+            '<p>Le client a confirmé les informations suivantes après son paiement :</p>' +
+            '<ul>' +
+              '<li><strong>Campagne :</strong> #' + input.campaignId + '</li>' +
+              '<li><strong>Client :</strong> ' + escapeHtml(input.customerName) + '</li>' +
+              '<li><strong>E-mail :</strong> ' + escapeHtml(input.customerEmail) + '</li>' +
+              '<li><strong>Montant :</strong> ' + Number(input.amount).toLocaleString('fr-FR') + ' FCFA</li>' +
+              '<li><strong>Plateforme :</strong> ' + escapeHtml(input.platform) + '</li>' +
+            '</ul>' +
+            '<p><strong>Lien :</strong> <a href="' + escapeHtml(input.link) + '">' + escapeHtml(input.link) + '</a></p>' +
+          '</div>'
+        })
+      });
+      if (res.ok) return { sent: true, provider: 'resend' };
+    } catch (e) {
+      console.error('[NOTIF] Erreur Resend:', e.message);
+    }
+  }
+
+  // Fallback SMTP (Nodemailer)
+  if (transporter && adminEmail) {
+    try {
+      await transporter.sendMail({
+        from: mailFrom,
+        to: adminEmail,
+        subject: 'KoraBoost — Campagne payée #' + input.campaignId,
+        text: 'Nouvelle campagne payée #' + input.campaignId + ' par ' + input.customerName + ' (' + input.customerEmail + '). Lien: ' + input.link,
+        html: '<div style="font-family:sans-serif;padding:20px;background:#0a0f1e;color:#fff;border-radius:10px">' +
+          '<h2 style="color:#56e39f">Nouvelle campagne payée #' + input.campaignId + '</h2>' +
+          '<p><strong>Client :</strong> ' + escapeHtml(input.customerName) + ' (' + escapeHtml(input.customerEmail) + ')</p>' +
+          '<p><strong>Montant :</strong> ' + Number(input.amount).toLocaleString('fr-FR') + ' FCFA</p>' +
+          '<p><strong>Plateforme :</strong> ' + escapeHtml(input.platform) + '</p>' +
+          '<p><strong>Lien :</strong> <a style="color:#7c8cff" href="' + escapeHtml(input.link) + '">' + escapeHtml(input.link) + '</a></p>' +
+        '</div>'
+      });
+      return { sent: true, provider: 'smtp' };
+    } catch (e) {
+      console.error('[NOTIF] Erreur SMTP:', e.message);
+    }
+  }
+
+  return { sent: false, reason: 'Aucun service email configuré.' };
+}
+
+module.exports = {
+  notifyAdminOfPaidCampaign,
+  configured,
+  smtpUser,
+  sendWelcomeEmail
+};
 async function sendWelcomeEmail(user, method = 'inscription') {
   if (!user || !user.email) return { sent: false, reason: 'email_absent' };
   if (!transporter) {
