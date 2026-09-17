@@ -20,7 +20,7 @@ const SEBPAY_API = (process.env.SEBPAY_API_URL || 'https://newapi.sebpay.bj/api/
 const SEBPAY_PUBLIC_KEY = process.env.SEBPAY_PUBLIC_KEY || '';
 const SEBPAY_SECRET_KEY = process.env.SEBPAY_SECRET_KEY || '';
 const SEBPAY_CURRENCY = process.env.SEBPAY_CURRENCY || 'XOF';
-const SEBPAY_DEFAULT_OPERATOR = process.env.SEBPAY_DEFAULT_OPERATOR || 'mtn';
+const SEBPAY_DEFAULT_OPERATOR = process.env.SEBPAY_DEFAULT_OPERATOR || 'mtn-bj';
 
 const detectPlatform = (link) => {
   const l = (link || '').toLowerCase();
@@ -33,19 +33,53 @@ const logAction = (adminId, action, target, detail) =>
   pool.query('INSERT INTO admin_actions (admin_id, action, target, detail) VALUES ($1,$2,$3,$4)',
     [adminId, action, String(target), detail ? String(detail).slice(0, 500) : null]).catch(() => {});
 
+// Toutes les reponses SebPay sont enveloppees : { success, data, message }
 async function sebpayJson(method, endpoint, body) {
   const opts = {
     method,
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'application/json',
       ...(SEBPAY_PUBLIC_KEY ? { 'X-Public-Key': SEBPAY_PUBLIC_KEY } : {}),
       ...(SEBPAY_SECRET_KEY ? { 'X-Secret-Key': SEBPAY_SECRET_KEY } : {})
     }
   };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(endpoint.startsWith('http') ? endpoint : SEBPAY_API + endpoint, opts);
-  const data = await r.json().catch(() => ({}));
-  return { ok: r.ok, status: r.status, data };
+  const envelope = await r.json().catch(() => ({}));
+  const wrapped = envelope && typeof envelope === 'object' && envelope.data !== undefined;
+  const payload = wrapped ? envelope.data : envelope;
+  const success = envelope && envelope.success !== undefined ? Boolean(envelope.success) : r.ok;
+  return {
+    ok: r.ok && success !== false,
+    status: r.status,
+    data: (payload && typeof payload === 'object') ? payload : {},
+    message: (envelope && envelope.message) || (payload && payload.message) || ''
+  };
+}
+
+// Devise par pays (XOF par defaut, zone CEMAC en XAF, etc.)
+const SEBPAY_COUNTRY_CURRENCY = {
+  CM: 'XAF', CG: 'XAF', GA: 'XAF', TD: 'XAF', CF: 'XAF',
+  CD: 'CDF', GN: 'GNF', NG: 'NGN', GH: 'GHS', GM: 'GMD',
+  KE: 'KES', UG: 'UGX', TZ: 'TZS'
+};
+const sebpayCurrencyFor = (countryCode) =>
+  SEBPAY_COUNTRY_CURRENCY[String(countryCode || '').toUpperCase()] || SEBPAY_CURRENCY;
+
+// Cache court de GET /operators : la liste des slugs ne doit pas etre codee en dur
+let operatorsCache = { at: 0, list: [] };
+async function sebpayOperators() {
+  if (Date.now() - operatorsCache.at < 10 * 60 * 1000 && operatorsCache.list.length) return operatorsCache.list;
+  const resp = await sebpayJson('GET', '/operators');
+  const list = Array.isArray(resp.data) ? resp.data : (Array.isArray(resp.data.operators) ? resp.data.operators : []);
+  if (resp.ok && list.length) operatorsCache = { at: Date.now(), list };
+  return operatorsCache.list;
+}
+async function sebpayOperator(slug) {
+  const wanted = String(slug || '').trim().toLowerCase();
+  const list = await sebpayOperators().catch(() => []);
+  return list.find((o) => String(o.slug || '').toLowerCase() === wanted) || null;
 }
 
 function normalizePhone(phone) {
@@ -55,8 +89,13 @@ function normalizePhone(phone) {
 function sebpayCountryCode(countryCode, country) {
   const normalized = String(countryCode || '').trim().toUpperCase();
   if (normalized.length === 2) return normalized;
-  const key = String(country || '').toLowerCase();
-  return ({ bénin: 'BJ', benin: 'BJ', 'côte d’ivoire': 'CI', "côte d'ivoire": 'CI', senegal: 'SN', sénégal: 'SN', cameroun: 'CM', togo: 'TG' })[key] || 'BJ';
+  const key = String(country || '').toLowerCase().trim();
+  return ({
+    'bénin': 'BJ', benin: 'BJ', 'côte d’ivoire': 'CI', "côte d'ivoire": 'CI', 'cote d ivoire': 'CI',
+    senegal: 'SN', 'sénégal': 'SN', cameroun: 'CM', togo: 'TG', mali: 'ML', niger: 'NE',
+    'burkina faso': 'BF', 'guinée': 'GN', guinee: 'GN', gabon: 'GA', ghana: 'GH', nigeria: 'NG',
+    'nigéria': 'NG', kenya: 'KE', tanzanie: 'TZ', ouganda: 'UG', congo: 'CG', 'r.d. congo': 'CD'
+  })[key] || 'BJ';
 }
 
 function sebpaySignatureIsValid(req) {
@@ -466,9 +505,17 @@ router.get('/campaigns/capacity', h(async (req, res) => {
   res.json({ users: r.rows[0].n, maxInteractions: r.rows[0].n });
 }));
 
+// Liste live des operateurs SebPay (slug + otp_required + ussd_code)
+router.get('/sebpay/operators', h(async (req, res) => {
+  const country = String(req.query.country || '').trim().toUpperCase();
+  const resp = await sebpayJson('GET', '/operators' + (country ? '?country=' + encodeURIComponent(country) : ''));
+  if (!resp.ok) return res.status(502).json({ error: 'SebPay : ' + (resp.message || 'liste des opérateurs indisponible.') });
+  res.json({ success: true, data: Array.isArray(resp.data) ? resp.data : (resp.data.operators || []) });
+}));
+
 // ========================= CAMPAGNES (CLIENT) =================
 router.post('/campaigns', authRequired, h(async (req, res) => {
-  const { link, interactions, operator } = req.body || {};
+  const { link, interactions, operator, otp_code: otpCode } = req.body || {};
   const n = parseInt(interactions, 10);
   const platform = detectPlatform(link);
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
@@ -480,7 +527,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
   const amount = n * PRICE_PER_INTERACTION;
-  const me = await pool.query('SELECT nom, prenom, telephone FROM users WHERE id = $1', [req.user.id]);
+  const me = await pool.query('SELECT nom, prenom, telephone, pays FROM users WHERE id = $1', [req.user.id]);
   const u = me.rows[0];
   const phone = normalizePhone(u.telephone);
   if (!phone) return res.status(400).json({ error: 'Ajoutez un numéro Mobile Money à votre compte avant de payer.' });
@@ -491,19 +538,32 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const campaignId = ins.rows[0].id;
   const externalReference = 'KORABOOST-CAMPAIGN-' + campaignId + '-' + crypto.randomBytes(5).toString('hex');
 
+  const operatorSlug = String(operator || SEBPAY_DEFAULT_OPERATOR).trim().toLowerCase();
+  const countryCode = sebpayCountryCode(null, u.pays);
+  const operatorInfo = await sebpayOperator(operatorSlug);
+  if (operatorInfo && operatorInfo.otp_required && !String(otpCode || '').trim()) {
+    await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
+    return res.status(400).json({
+      error: 'Cet opérateur exige un code OTP. Composez ' + (operatorInfo.ussd_code || 'le code USSD de votre opérateur') + ' puis saisissez le code reçu.',
+      otpRequired: true,
+      ussdCode: operatorInfo.ussd_code || null
+    });
+  }
+
   const resp = await sebpayJson('POST', '/collections', {
     amount,
-    currency: SEBPAY_CURRENCY,
+    currency: sebpayCurrencyFor(countryCode),
     phone,
-    operator: String(operator || SEBPAY_DEFAULT_OPERATOR).trim().toLowerCase(),
-    country: sebpayCountryCode(u.pays),
+    operator: operatorSlug,
+    country: countryCode,
     external_reference: externalReference,
-    callback_url: PUBLIC_URL + '/api/sebpay/webhook'
+    callback_url: PUBLIC_URL + '/api/sebpay/webhook',
+    ...(String(otpCode || '').trim() ? { otp_code: String(otpCode).trim() } : {})
   });
   const payment = resp.data || {};
   if (!resp.ok || !payment.transaction_id) {
     await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
-    return res.status(502).json({ error: 'SebPay : ' + (payment.message || 'impossible de créer le paiement.') });
+    return res.status(502).json({ error: 'SebPay : ' + (resp.message || payment.message || 'impossible de créer le paiement.') });
   }
   await pool.query(
     'UPDATE campaigns SET mf_token=$2, payment_reference=$3, sebpay_transaction_id=$2 WHERE id=$1',
@@ -644,11 +704,11 @@ router.get('/withdraw/methods', authRequired, h(async (req, res) => {
   res.json({
     success: true,
     data: [
-      { country: 'Bénin', code: 'BJ', currency: 'XOF', paymentMethods: [{ key: 'mtn-bj', name: 'MTN' }, { key: 'moov-bj', name: 'Moov' }, { key: 'orange-bj', name: 'Orange' }] },
+      { country: 'Bénin', code: 'BJ', currency: 'XOF', paymentMethods: [{ key: 'mtn-bj', name: 'MTN' }, { key: 'moov-bj', name: 'Moov' }, { key: 'celtiis-bj', name: 'Celtiis' }, { key: 'coris-bj', name: 'Coris' }] },
       { country: "Côte d'Ivoire", code: 'CI', currency: 'XOF', paymentMethods: [{ key: 'mtn-ci', name: 'MTN' }, { key: 'orange-ci', name: 'Orange' }, { key: 'moov-ci', name: 'Moov' }, { key: 'wave-ci', name: 'Wave' }] },
-      { country: 'Sénégal', code: 'SN', currency: 'XOF', paymentMethods: [{ key: 'wave-sn', name: 'Wave' }, { key: 'orange-sn', name: 'Orange' }] },
+      { country: 'Sénégal', code: 'SN', currency: 'XOF', paymentMethods: [{ key: 'wave-sn', name: 'Wave' }, { key: 'orange-sn', name: 'Orange' }, { key: 'free-sn', name: 'Free Money' }] },
       { country: 'Cameroun', code: 'CM', currency: 'XAF', paymentMethods: [{ key: 'mtn-cm', name: 'MTN' }, { key: 'orange-cm', name: 'Orange' }] },
-      { country: 'Togo', code: 'TG', currency: 'XOF', paymentMethods: [{ key: 'togocom-tg', name: 'togocom' }] }
+      { country: 'Togo', code: 'TG', currency: 'XOF', paymentMethods: [{ key: 'tmoney-tg', name: 'T-Money' }, { key: 'moov-tg', name: 'Moov' }] }
     ]
   });
 }));
@@ -677,7 +737,7 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
       [req.user.id, amt, 'retrait #' + w.rows[0].id]);
 
     const payoutReference = 'KORABOOST-WITHDRAW-' + w.rows[0].id + '-' + crypto.randomBytes(5).toString('hex');
-    const operator = String(withdraw_mode).split('-')[0].toLowerCase();
+    const operator = String(withdraw_mode).trim().toLowerCase();
     const normalizedCountry = sebpayCountryCode(countryCode, country);
     const payout = await sebpayJson('POST', '/payouts', {
       recipient_name: 'Utilisateur KoraBoost #' + req.user.id,
@@ -685,13 +745,13 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
       operator,
       country: normalizedCountry,
       amount: amt,
-      currency: normalizedCountry === 'CM' ? 'XAF' : 'XOF',
+      currency: sebpayCurrencyFor(normalizedCountry),
       external_reference: payoutReference,
       callback_url: PUBLIC_URL + '/api/sebpay/withdrawal-webhook',
       description: 'Retrait KoraBoost #' + w.rows[0].id
     });
     if (!payout.ok || !payout.data || !payout.data.transaction_id)
-      throw httpError(502, 'SebPay : ' + ((payout.data && payout.data.message) || 'décaissement refusé.'));
+      throw httpError(502, 'SebPay : ' + (payout.message || (payout.data && payout.data.message) || 'décaissement refusé.'));
     await client.query('UPDATE withdrawals SET mf_token = $2 WHERE id = $1', [w.rows[0].id, payoutReference]);
     await client.query('COMMIT');
     res.json({ ok: true, withdrawalId: w.rows[0].id, transactionId: payout.data.transaction_id });

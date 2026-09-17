@@ -16,6 +16,8 @@
   .btn-p{background:var(--accent);color:#052e16}.btn-b{background:var(--accent2)}
   .btn-r{background:var(--red)}.btn-g{background:#334155}
   .btn-sm{padding:5px 10px;font-size:.78rem}
+  #btn-logout{padding:13px 22px;font-size:.96rem;min-height:46px;transition:transform .2s,box-shadow .2s}
+  #btn-logout:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(251,113,133,.25)}
   .card{background:linear-gradient(145deg,rgba(16,33,58,.95),rgba(9,23,41,.92));border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 18px 55px rgba(0,0,0,.22)}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
@@ -52,7 +54,7 @@
 <div class="wrap">
   <header>
     <div class="logo">🛠️ Admin <span class="muted"><strong>KoraBoost</strong></span></div>
-    <button id="btn-logout" class="btn btn-r hidden">Quitter</button>
+    <button id="btn-logout" class="btn btn-r hidden">Déconnecter</button>
   </header>
   <div id="alerts"></div>
   <div id="app"></div>

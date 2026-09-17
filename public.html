@@ -28,6 +28,7 @@
   .btn-g:hover{background:rgba(255,255,255,.1)}
   .btn-r{background:var(--red);color:#fff}
   .btn-sm{padding:6px 12px;font-size:.82rem}
+  .btn-logout{padding:12px 20px;font-size:.95rem;min-height:46px}
   .card{background:linear-gradient(145deg,rgba(16,33,58,.9),rgba(9,23,41,.88));border:1px solid var(--line);border-radius:22px;padding:26px;margin-bottom:18px;box-shadow:var(--shadow)}
   .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
   @media(max-width:640px){.grid2{grid-template-columns:1fr}}
@@ -96,6 +97,15 @@
   .assistant-form button{width:42px;border:0;border-radius:11px;background:var(--accent);color:#052e16;font-size:1rem;cursor:pointer}
   .social-login{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:16px}
   .social-login .btn{font-size:.8rem;padding:10px 8px}
+  .home-panel{cursor:pointer;transition:opacity .26s ease,transform .26s ease,border-color .26s ease,box-shadow .26s ease}
+  .home-panel:hover{transform:translateY(-4px);border-color:rgba(86,227,159,.42)}
+  .home-panel:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+  .home-panels.is-focused .home-panel:not(.is-selected){display:none}
+  .home-panels.is-focused .home-panel.is-selected{grid-column:1/-1;animation:panelFocus .34s cubic-bezier(.2,.8,.2,1)}
+  .home-back{display:none;margin:0 0 18px}
+  .home-panels.is-focused + .home-back{display:inline-flex;animation:panelFocus .3s ease-out}
+  @keyframes panelFocus{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @media(prefers-reduced-motion:reduce){.home-panel,.home-panels.is-focused .home-panel.is-selected,.home-panels.is-focused + .home-back{animation:none;transition:none}}
   .auth-divider{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:.75rem;margin:16px 0 12px}
   .auth-divider:before,.auth-divider:after{content:"";height:1px;background:var(--line);flex:1}
 </style>
@@ -157,7 +167,7 @@ function renderNav() {
     n.innerHTML = '<a class="btn btn-g btn-sm" href="#/tableau">Tableau de bord</a>' +
       '<a class="btn btn-g btn-sm" href="#/campagnes">Campagnes</a>' +
       '<a class="btn btn-g btn-sm" href="#/retrait">Retrait</a>' +
-      '<button class="btn btn-r btn-sm" onclick="logout()">Quitter (' + esc(S.user.prenom) + ')</button>';
+      '<button class="btn btn-r btn-logout" onclick="logout()">Déconnecter (' + esc(S.user.prenom) + ')</button>';
   } else {
     n.innerHTML = '<a class="btn btn-b btn-sm" href="#/connexion">Connexion</a>' +
       '<a class="btn btn-p btn-sm" href="#/inscription">Inscription</a>';
@@ -177,22 +187,45 @@ function vHome() {
     </div>
     <div class="hero-points"><span><i></i>Paiements suivis</span><span><i></i>Preuves vérifiées</span><span><i></i>Assistance disponible</span></div>
   </div>
-  <div class="grid2">
-    <div class="card">
+  <div class="grid2 home-panels" id="home-panels">
+    <div class="card home-panel" data-panel="gagner" role="button" tabindex="0" aria-label="Ouvrir le panneau Gagnez avec vos actions">
       <div class="eyebrow">Pour les créateurs actifs</div>
       <h2>👤 Gagnez avec vos actions</h2>
       <p class="muted">Réalisez les tâches disponibles, envoyez vos preuves et recevez <b>${S.rules.taskReward} FCFA</b> par tâche validée.</p>
       <p style="line-height:1.9;margin:14px 0 20px">✓ Like + 5 commentaires<br>✓ Captures contrôlées<br>✓ Retrait dès <b>${fcfa(S.rules.minWithdrawal)}</b></p>
       <a class="btn btn-p" href="#/inscription">Créer mon compte <span>→</span></a>
     </div>
-    <div class="card">
+    <div class="card home-panel" data-panel="promouvoir" role="button" tabindex="0" aria-label="Ouvrir le panneau Donnez de l’élan à vos publications">
       <div class="eyebrow" style="color:var(--cyan)">Pour les marques et clients</div>
       <h2>📢 Donnez de l'élan à vos publications</h2>
       <p class="muted">Facebook ou TikTok : choisissez votre lien, votre volume d'interactions et suivez l'avancement de votre campagne.</p>
       <p style="line-height:1.9;margin:14px 0 20px">✓ Audience locale active<br>✓ Paiement sécurisé MoneyFusion<br>✓ Suivi simple et transparent</p>
       <a class="btn btn-b" href="#/campagnes">Lancer une campagne <span>→</span></a>
     </div>
-  </div>`;
+  </div>
+  <button class="btn btn-g home-back" id="home-back" type="button">← Retour à l’accueil</button>`;
+}
+
+function bindHomePanels() {
+  const panels = $('#home-panels');
+  const back = $('#home-back');
+  if (!panels || !back) return;
+  const openPanel = (panel) => {
+    panels.classList.add('is-focused');
+    panels.querySelectorAll('.home-panel').forEach(item => item.classList.toggle('is-selected', item === panel));
+    back.focus();
+  };
+  panels.querySelectorAll('.home-panel').forEach(panel => {
+    panel.addEventListener('click', event => { if (!event.target.closest('a')) openPanel(panel); });
+    panel.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPanel(panel); }
+    });
+  });
+  back.onclick = () => {
+    panels.classList.remove('is-focused');
+    panels.querySelectorAll('.home-panel').forEach(panel => panel.classList.remove('is-selected'));
+    panels.querySelector('.home-panel')?.focus();
+  };
 }
 
 function vAuth(mode) {
@@ -366,6 +399,7 @@ async function vCampaigns() {
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
       <label>Opérateur Mobile Money</label>
+      <input name="otp_code" placeholder="Code OTP (si votre opérateur le demande)" autocomplete="one-time-code">
       <select name="operator" required>
         <option value="mtn">MTN</option>
         <option value="moov">Moov</option>
@@ -511,7 +545,7 @@ function bindCampaign(price) {
     try {
       const r = await api('/campaigns', {
         method: 'POST',
-        body: { link: fd.get('link'), interactions: fd.get('interactions'), operator: fd.get('operator') }
+        body: { link: fd.get('link'), interactions: fd.get('interactions'), operator: fd.get('operator'), otp_code: fd.get('otp_code') || '' }
       });
       if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
       alertMsg('Paiement SebPay initié. La page de confirmation va suivre le statut.', 'info');
@@ -602,7 +636,7 @@ async function route() {
     }
     if (m) { app.innerHTML = await vTask(m[1]); bindTask(); return; }
     switch (hash) {
-      case '#/': app.innerHTML = vHome(); break;
+      case '#/': app.innerHTML = vHome(); bindHomePanels(); break;
       case '#/inscription': app.innerHTML = vAuth('inscription'); bindAuth('inscription'); break;
       case '#/connexion': app.innerHTML = vAuth('connexion'); bindAuth('connexion'); break;
       case '#/tableau': app.innerHTML = await vDashboard(); break;
