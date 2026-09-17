@@ -37951,15 +37951,17 @@ var GetCampaignPaymentResponse = objectType({
 var SubmitCampaignSuccessConfirmationParams = objectType({
   "campaignId": coerce.number().int()
 });
+var submitCampaignSuccessConfirmationBodyEmailMin = 3;
 var SubmitCampaignSuccessConfirmationBody = objectType({
   "link": stringType().url(),
-  "email": stringType().email()
+  "email": stringType().min(submitCampaignSuccessConfirmationBodyEmailMin).describe("Identifiant du compte : e-mail ou t\xE9l\xE9phone")
 });
+var submitCampaignSuccessConfirmationResponseEmailMin = 3;
 var SubmitCampaignSuccessConfirmationResponse = objectType({
   "id": numberType().int(),
   "campaignId": numberType().int(),
   "link": stringType().url(),
-  "email": stringType().email(),
+  "email": stringType().min(submitCampaignSuccessConfirmationResponseEmailMin).describe("Identifiant du compte : e-mail ou t\xE9l\xE9phone"),
   "notificationSent": booleanType(),
   "createdAt": stringType()
 });
@@ -38103,12 +38105,13 @@ var ListAdminSubmissionsResponseItem = objectType({
   "commentProofs": arrayType(stringType())
 }));
 var ListAdminSubmissionsResponse = arrayType(ListAdminSubmissionsResponseItem);
+var listAdminCampaignConfirmationsResponseEmailMin = 3;
 var ListAdminCampaignConfirmationsResponseItem = objectType({
   "id": numberType().int(),
   "campaignId": numberType().int(),
   "platform": stringType(),
   "link": stringType().url(),
-  "email": stringType().email(),
+  "email": stringType().min(listAdminCampaignConfirmationsResponseEmailMin).describe("Identifiant du compte : e-mail ou t\xE9l\xE9phone"),
   "notificationSent": booleanType(),
   "createdAt": stringType()
 });
@@ -45796,7 +45799,7 @@ async function notifyAdminOfPaidCampaign(input) {
         <ul>
           <li><strong>Campagne :</strong> #${input.campaignId}</li>
           <li><strong>Client :</strong> ${escapeHtml(input.customerName)}</li>
-          <li><strong>E-mail :</strong> ${escapeHtml(input.customerEmail)}</li>
+          <li><strong>Identifiant du compte :</strong> ${escapeHtml(input.customerEmail)}</li>
           <li><strong>Montant :</strong> ${input.amount.toLocaleString("fr-FR")} FCFA</li>
           <li><strong>Plateforme :</strong> ${escapeHtml(input.platform)}</li>
         </ul>
