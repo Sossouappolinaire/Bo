@@ -78,9 +78,11 @@
     confirmButton.disabled = data.payment_status !== 'paid' || data.linkConfirmed;
     confirmButton.textContent = data.linkConfirmed ? 'Lien confirmé' : 'Confirmer ce lien';
     if (data.payment_status === 'paid') {
-      titleEl.textContent = 'Paiement confirmé';
-      descriptionEl.textContent = 'Votre campagne est enregistrée. Vérifiez maintenant le lien avant son envoi à la validation.';
-      setStatus(data.linkConfirmed ? 'Paiement confirmé et lien enregistré.' : 'Paiement confirmé par SebPay.', 'ok');
+      titleEl.textContent = data.free ? 'Campagne gratuite enregistrée' : 'Paiement confirmé';
+      descriptionEl.textContent = data.free
+        ? 'Votre campagne gratuite est enregistrée et sera vérifiée par l’administrateur.'
+        : 'Votre campagne est enregistrée. Vérifiez maintenant le lien avant son envoi à la validation.';
+      setStatus(data.free ? 'Aucun paiement ni commission ne sera appliqué.' : (data.linkConfirmed ? 'Paiement confirmé et lien enregistré.' : 'Paiement confirmé par SebPay.'), 'ok');
       if (timer) clearInterval(timer);
     } else if (data.payment_status === 'rejected' || data.status === 'rejected') {
       titleEl.textContent = 'Paiement non confirmé';

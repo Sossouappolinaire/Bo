@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS admin_actions (
   detail TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS app_settings (
+  key VARCHAR(80) PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 async function seedAdmin() {
@@ -181,6 +186,8 @@ async function init() {
   const client = await pool.connect();
   try {
     await client.query(SCHEMA);
+    const { seedSettings } = require('./config/settings');
+    await seedSettings(pool);
     await seedAdmin();
     await seedTestUsers();
     console.log('[init] Base de données prête.');

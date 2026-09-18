@@ -133,7 +133,7 @@
 </section>
 <script>
 // ===================== ETAT & API =====================
-const S = { token: localStorage.getItem('tr_token') || null, user: null, rules: { taskReward: 3, minWithdrawal: 300 } };
+const S = { token: localStorage.getItem('tr_token') || null, user: null, rules: { taskReward: 2, minWithdrawal: 300 } };
 const $ = (sel) => document.querySelector(sel);
 const fcfa = (n) => Number(n).toLocaleString('fr-FR') + ' FCFA';
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -390,31 +390,35 @@ async function vWithdraw() {
 
 async function vCampaigns() {
   const [mine, meta] = await Promise.all([api('/campaigns/mine'), api('/meta')]);
-  const price = meta.pricePerInteraction;
-  const minAmount = Number(meta.minCampaignAmount || 100);
-  const minInteractions = Math.max(1, Math.ceil(minAmount / price));
+  const free = meta.billingMode === 'free';
+  const price = free ? 0 : Number(meta.pricePerInteraction);
+  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
+  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
+  const paymentFields = free
+    ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette campagne est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
+    : `<label>Pays</label>
+       <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
+       <label>Réseau Mobile Money</label>
+       <select name="operator" id="c-operator" required><option value="">Choisissez d'abord un pays</option></select>
+       <label>Numéro Mobile Money à débiter</label>
+       <input name="phone" id="c-phone" required inputmode="tel" placeholder="Numéro du compte à débiter">
+       <div id="c-otp-box" style="display:none">
+         <label>Code OTP</label>
+         <p class="muted" style="font-size:.8rem" id="c-otp-hint"></p>
+         <input name="otp_code" id="c-otp" placeholder="Code reçu par USSD" autocomplete="one-time-code">
+       </div>`;
   return `
   <div class="card">
     <h2>➕ Nouvelle campagne</h2>
-    <p class="muted">💰 Montant minimum d'une campagne : <b>${fcfa(minAmount)}</b>.</p>
+    <p class="muted">${free ? '🆓 Aucune somme ne sera facturée.' : `💰 Montant minimum d'une campagne : <b>${fcfa(minAmount)}</b>.`}</p>
     <form id="f-campaign">
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
-      <label>Pays</label>
-      <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
-      <label>Réseau Mobile Money</label>
-      <select name="operator" id="c-operator" required><option value="">Choisissez d'abord un pays</option></select>
-      <label>Numéro Mobile Money à débiter</label>
-      <input name="phone" id="c-phone" required inputmode="tel" placeholder="Numéro du compte à débiter">
-      <div id="c-otp-box" style="display:none">
-        <label>Code OTP</label>
-        <p class="muted" style="font-size:.8rem" id="c-otp-hint"></p>
-        <input name="otp_code" id="c-otp" placeholder="Code reçu par USSD" autocomplete="one-time-code">
-      </div>
+      ${paymentFields}
       <label>Nombre d'interactions souhaitées</label>
       <input name="interactions" id="c-n" type="number" min="${minInteractions}" value="${minInteractions}" required>
-      <p>Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span></p>
-      <button class="btn btn-b" style="width:100%">Payer avec SebPay</button>
+      <p>${free ? 'Prix : <b id="c-price">Gratuit</b>' : `Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span>`}</p>
+      <button class="btn btn-b" style="width:100%">${free ? 'Créer gratuitement' : 'Payer avec SebPay'}</button>
     </form>
   </div>
   <div class="card">
@@ -545,11 +549,12 @@ function wdBadge(st) {
 }
 
 async function bindCampaign(meta) {
-  const price = Number(meta.pricePerInteraction);
-  const minAmount = Number(meta.minCampaignAmount || 100);
-  const minInteractions = Math.max(1, Math.ceil(minAmount / price));
+  const free = meta.billingMode === 'free';
+  const price = free ? 0 : Number(meta.pricePerInteraction);
+  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
+  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
   $('#c-n').min = String(minInteractions);
-  $('#c-n').oninput = (e) => { $('#c-price').textContent = fcfa((parseInt(e.target.value) || 0) * price); };
+  $('#c-n').oninput = (e) => { $('#c-price').textContent = free ? 'Gratuit' : fcfa((parseInt(e.target.value) || 0) * price); };
 
   const selCountry = $('#c-operator') ? $('#c-country') : null;
   const selOp = $('#c-operator');
@@ -605,7 +610,7 @@ async function bindCampaign(meta) {
     e.preventDefault();
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('button');
-    if (btn) { btn.disabled = true; btn.textContent = 'Paiement en cours…'; }
+    if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : 'Paiement en cours…'; }
     try {
       const r = await api('/campaigns', {
         method: 'POST',
@@ -619,10 +624,10 @@ async function bindCampaign(meta) {
         }
       });
       if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
-      alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
+      alertMsg(free ? '✅ Campagne gratuite enregistrée.' : 'Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
       window.location.href = r.successUrl;
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Payer avec SebPay'; }
+      if (btn) { btn.disabled = false; btn.textContent = free ? 'Créer gratuitement' : 'Payer avec SebPay'; }
       alertMsg(err.message, 'err');
     }
   };

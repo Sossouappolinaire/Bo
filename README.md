@@ -44,6 +44,17 @@ Le compte administrateur est synchronisé au démarrage depuis `ADMIN_EMAIL` et
 mot de passe directement dans les variables secrètes Render, jamais dans le
 code. La connexion admin accepte maintenant l'e-mail ou le téléphone.
 
+L'onglet **🩺 Configuration** permet de modifier le prix client d'une tâche
+(1 like + 5 commentaires), la récompense versée à l'utilisateur après
+validation, les seuils et la clé Groq. Les valeurs par défaut sont **3 FCFA**
+facturés par tâche et **2 FCFA** versés à l'utilisateur. La clé Groq reste
+stockée côté serveur et n'est jamais affichée en clair.
+
+Le même onglet permet de choisir le mode **Payant** ou **Free**. En mode Free,
+le client peut envoyer son lien sans paiement SebPay, aucun numéro Mobile Money
+n'est demandé et aucune commission n'est versée aux utilisateurs. Les campagnes
+restent soumises à la validation administrateur avant d'être activées.
+
 ## Activer l'assistant Groq
 
 Ajouter ces variables dans Render, dans un fichier `.env` local ou dans le
@@ -54,8 +65,9 @@ GROQ_API_KEY=votre_cle_groq
 GROQ_MODEL=llama-3.1-8b-instant
 ```
 
-La clé n'est jamais envoyée au navigateur. `config/ai.js` centralise
-l'endpoint, le modèle et la lecture de la variable d'environnement.
+La clé n'est jamais envoyée au navigateur. Elle peut être initialisée par
+`GROQ_API_KEY` ou enregistrée depuis le panneau administrateur ; dans les deux
+cas elle est utilisée uniquement côté serveur.
 
 ## Vérifier Render après le déploiement
 

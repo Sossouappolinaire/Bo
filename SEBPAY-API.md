@@ -163,6 +163,11 @@ Sans `otp_code` pour un opérateur qui l'exige, la transaction est **immédiatem
 
 > Ne pas coder cette liste en dur pour la production : elle peut évoluer. Toujours confirmer via `GET /operators` avant un gros volume — un mauvais slug fait échouer la transaction avec une erreur explicite (aucun argent ne part).
 
+> **Important — format du slug API :** la documentation en ligne utilise le slug
+> générique de l'opérateur dans la requête (`moov`, `mtn`, `orange`, `wave`,
+> etc.). Le projet peut conserver les anciennes clés d'affichage comme
+> `moov-bj`, mais les convertit désormais en `moov` avant l'appel SebPay.
+
 ## Webhooks
 
 SebPay notifie le statut final (`approved`/`rejected`) par `POST` JSON sur votre `callback_url`.

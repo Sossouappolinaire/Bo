@@ -115,7 +115,7 @@ async function vDash(tab) {
       <div class="stat"><b>${fcfa(st.encaisse)}</b><span class="muted">Encaissé</span></div>
       <div class="stat"><b>${fcfa(st.decaisse)}</b><span class="muted">Décaissé</span></div>
     </div>
-    <div class="card"><p>👥 Utilisateurs actifs : <b>${st.actifs}</b> — ❤️ Capacité actuelle : <b>${st.actifs} likes</b> — Récompense/tâche : <b>${st.recompense_tache} FCFA</b></p></div>`;
+     <div class="card"><p>👥 Utilisateurs actifs : <b>${st.actifs}</b> — ❤️ Capacité actuelle : <b>${st.actifs} likes</b> — Mode : <b>${st.billing_mode === 'free' ? 'Free (sans commission)' : 'Payant'}</b> — Récompense/tâche : <b>${st.recompense_tache} FCFA</b></p></div>`;
   } else if (tab === 'campagnes') {
     const rows = await api('/admin/campaigns?status=pending_admin');
     const act = await api('/admin/campaigns?status=active');
@@ -123,7 +123,7 @@ async function vDash(tab) {
       ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Demandé</th><th>Payé</th><th></th></tr>
       ${rows.map(c => `<tr><td>#${c.id}</td><td>${esc(c.prenom)} ${esc(c.nom)}<br><span class="muted">${esc(c.telephone)}</span></td>
         <td>${c.platform}</td><td><a href="${esc(c.link)}" target="_blank">lien</a></td>
-        <td>${c.interactions}</td><td>${fcfa(c.amount)}<br><span class="badge b-ok">✅ PAYÉ</span></td>
+         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
         <td><button class="btn btn-p btn-sm" onclick="decideCamp(${c.id},true)">Approuver</button>
             <button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Refuser</button></td></tr>`).join('')}</table>`
       : '<p class="muted">Aucune campagne en attente.</p>'}
@@ -161,6 +161,7 @@ async function vDash(tab) {
         <td>${esc(t.ref || '—')}</td><td>${new Date(t.created_at).toLocaleString('fr-FR')}</td></tr>`).join('')}</table>`;
   } else if (tab === 'system') {
     const health = await api('/health');
+    const settings = await api('/admin/settings');
     const statusLabel = { ok: 'Opérationnel', warning: 'À configurer', error: 'Bloquant' };
     const statusIcon = { ok: '✅', warning: '⚠️', error: '❌' };
     body = `<div class="card">
@@ -177,14 +178,42 @@ async function vDash(tab) {
         <span class="health-status health-${c.status}">${statusIcon[c.status]} ${statusLabel[c.status]}</span>
       </div>`).join('')}</div>
     </div>
-    <div class="card"><b>URL externe de diagnostic</b><p class="muted" style="margin-top:7px">Après le déploiement, ouvrez <code>/api/health</code> sur votre domaine Render pour obtenir ce même état au format JSON.</p></div>`;
+     <div class="card">
+       <h2 style="margin-bottom:6px">⚙️ Réglages métier</h2>
+       <p class="muted" style="margin-bottom:14px">Ces valeurs s’appliquent immédiatement aux nouvelles campagnes et aux validations de preuves.</p>
+       <label>Mode de facturation des campagnes</label>
+       <select id="setting-billing-mode">
+         <option value="paid" ${settings.billingMode === 'paid' ? 'selected' : ''}>Payant — le client paie et l'utilisateur reçoit sa récompense</option>
+         <option value="free" ${settings.billingMode === 'free' ? 'selected' : ''}>Free — le client ne paie rien et personne ne reçoit de commission</option>
+       </select>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les campagnes sont enregistrées sans paiement SebPay.</p>
+       <div class="grid2">
+         <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
+           <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>
+         <div><label>Récompense utilisateur par tâche validée, en FCFA</label>
+           <input id="setting-reward" type="number" min="0.01" step="0.01" value="${settings.taskReward}"></div>
+       </div>
+       <div class="grid2">
+         <div><label>Montant minimum d’une campagne, en FCFA</label>
+           <input id="setting-min-campaign" type="number" min="0.01" step="0.01" value="${settings.minCampaignAmount}"></div>
+         <div><label>Solde minimum pour un retrait, en FCFA</label>
+           <input id="setting-min-withdrawal" type="number" min="0.01" step="0.01" value="${settings.minWithdrawal}"></div>
+       </div>
+       <label>Clé API Groq (laisser vide pour conserver la clé actuelle)</label>
+       <input id="setting-groq-key" type="password" autocomplete="new-password" placeholder="${esc(settings.groqConfigured ? 'Clé enregistrée : ' + settings.groqKeyMasked : 'gsk_...')}">
+       <label>Modèle Groq</label><input id="setting-groq-model" value="${esc(settings.groqModel)}" maxlength="120">
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">${settings.groqConfigured ? '✅ Clé Groq configurée. Elle reste masquée.' : '⚠️ Aucune clé Groq configurée.'}</p>
+       <button class="btn btn-p" onclick="saveSettings()">Enregistrer les réglages</button>
+       ${settings.groqConfigured ? '<button class="btn btn-r btn-sm" style="margin-left:8px" onclick="clearGroqKey()">Supprimer la clé Groq</button>' : ''}
+     </div>
+     <div class="card"><b>URL externe de diagnostic</b><p class="muted" style="margin-top:7px">Après le déploiement, ouvrez <code>/api/health</code> sur votre domaine Render pour obtenir ce même état au format JSON.</p></div>`;
   }
   return `<div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${k === tab ? 'on' : ''}" onclick="showTab('${k}')">${l}</button>`).join('')}</div>${body}`;
 }
 
 async function viewSub(id) {
   try {
-    const d = await api('/admin/submissions/' + id);
+    const [d, settings] = await Promise.all([api('/admin/submissions/' + id), api('/admin/settings')]);
     const s = d.submission, proofs = d.proofs;
     const labels = { like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
     const modal = document.createElement('div');
@@ -194,7 +223,7 @@ async function viewSub(id) {
       <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Like : ✅ · Commentaires : 5 · Captures : ${proofs.length}</p>
       ${proofs.map(p => `<h4 style="margin-top:10px">${labels[p.kind] || p.kind}</h4><img src="${p.image}">`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
-        <button class="btn btn-p" onclick="reviewSub(${s.id},true)">✅ Valider (+3 FCFA)</button>
+         <button class="btn btn-p" onclick="reviewSub(${s.id},true)">✅ Valider (${settings.billingMode === 'free' ? 'aucune commission' : '+' + settings.taskReward + ' FCFA'})</button>
         <select id="rej-reason" style="width:auto;flex:1;min-width:200px">
           <option>Capture insuffisante</option><option>Commentaire manquant</option>
           <option>Preuve illisible</option><option>Tâche incorrectement réalisée</option>
@@ -231,6 +260,45 @@ async function userStatus(id, action) {
     await api('/admin/users/' + id + '/status', { method: 'POST', body: { action } });
     msg('Utilisateur mis à jour.', 'ok');
     render();
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function saveSettings() {
+  try {
+    const groqKey = $('#setting-groq-key') ? $('#setting-groq-key').value.trim() : '';
+    await api('/admin/settings', {
+      method: 'POST',
+      body: {
+        billingMode: $('#setting-billing-mode').value,
+        pricePerInteraction: Number($('#setting-price').value),
+        taskReward: Number($('#setting-reward').value),
+        minCampaignAmount: Number($('#setting-min-campaign').value),
+        minWithdrawal: Number($('#setting-min-withdrawal').value),
+        groqApiKey: groqKey,
+        groqModel: $('#setting-groq-model').value.trim()
+      }
+    });
+    msg('✅ Réglages enregistrés et actifs.', 'ok');
+    render('system');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function clearGroqKey() {
+  if (!confirm('Supprimer la clé Groq ? L’assistant sera désactivé.')) return;
+  try {
+    await api('/admin/settings', {
+      method: 'POST',
+      body: {
+        billingMode: $('#setting-billing-mode').value,
+        pricePerInteraction: Number($('#setting-price').value),
+        taskReward: Number($('#setting-reward').value),
+        minCampaignAmount: Number($('#setting-min-campaign').value),
+        minWithdrawal: Number($('#setting-min-withdrawal').value),
+        clearGroqKey: true
+      }
+    });
+    msg('Clé Groq supprimée.', 'ok');
+    render('system');
   } catch (e) { msg(e.message, 'err'); }
 }
 

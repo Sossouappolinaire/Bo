@@ -2,27 +2,37 @@ const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('./database');
 const { hash, compare, sign, authRequired, adminRequired, publicUser, parseCookies } = require('./auth');
-const { groq } = require('./config/ai');
 const { publicUrl } = require('./config/runtime');
 const oauth = require('./config/oauth');
 const { configured: emailConfigured, sendWelcomeEmail } = require('./config/mailer');
 const catalog = require('./config/sebpay-catalog');
+const { DEFAULT_SETTINGS, loadSettings } = require('./config/settings');
 
 const router = express.Router();
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const httpError = (status, msg) => Object.assign(new Error(msg), { status });
 
-// ---- Regles metier (configurables via .env / Render) ----
-const TASK_REWARD = parseFloat(process.env.TASK_REWARD || '3');
-const PRICE_PER_INTERACTION = parseFloat(process.env.PRICE_PER_INTERACTION || '1');
-const MIN_CAMPAIGN_AMOUNT = parseFloat(process.env.MIN_CAMPAIGN_AMOUNT || '100');
-const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL || '300');
+// Les règles sont persistées en base afin que l'administrateur puisse les
+// modifier sans redéployer. Les variables d'environnement restent les valeurs
+// initiales de secours.
 const PUBLIC_URL = publicUrl;
 const SEBPAY_API = (process.env.SEBPAY_API_URL || 'https://newapi.sebpay.bj/api/v1').replace(/\/+$/, '');
 const SEBPAY_PUBLIC_KEY = process.env.SEBPAY_PUBLIC_KEY || '';
 const SEBPAY_SECRET_KEY = process.env.SEBPAY_SECRET_KEY || '';
 const SEBPAY_CURRENCY = process.env.SEBPAY_CURRENCY || 'XOF';
 const SEBPAY_DEFAULT_OPERATOR = process.env.SEBPAY_DEFAULT_OPERATOR || 'mtn-bj';
+const currentSettings = () => loadSettings(pool);
+const fallbackSettings = () => ({
+  billingMode: DEFAULT_SETTINGS.billing_mode === 'free' ? 'free' : 'paid',
+  taskReward: Number(DEFAULT_SETTINGS.task_reward),
+  pricePerInteraction: Number(DEFAULT_SETTINGS.price_per_interaction),
+  minCampaignAmount: Number(DEFAULT_SETTINGS.min_campaign_amount),
+  minWithdrawal: Number(DEFAULT_SETTINGS.min_withdrawal),
+  groqApiKey: String(DEFAULT_SETTINGS.groq_api_key || ''),
+  groqModel: String(DEFAULT_SETTINGS.groq_model)
+});
+const effectiveReward = (settings) => settings.billingMode === 'free' ? 0 : settings.taskReward;
+const effectivePrice = (settings) => settings.billingMode === 'free' ? 0 : settings.pricePerInteraction;
 
 const detectPlatform = (link) => {
   const l = (link || '').toLowerCase();
@@ -58,6 +68,19 @@ async function sebpayJson(method, endpoint, body) {
     data: (payload && typeof payload === 'object') ? payload : {},
     message: (envelope && envelope.message) || (payload && payload.message) || ''
   };
+}
+
+// L'API SebPay documente une réponse enveloppée, mais certaines versions
+// renvoient la liste sous data.operators ou data.data. On accepte ces formes
+// sans jamais considérer une réponse d'erreur comme une liste live.
+function operatorArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return [];
+  for (const key of ['operators', 'data', 'results', 'items']) {
+    const found = operatorArray(value[key]);
+    if (found.length) return found;
+  }
+  return [];
 }
 
 // Devise par pays : le catalogue fait autorite (zone CEMAC en XAF, CDF, GNF...)
@@ -116,7 +139,10 @@ function normalizeSebpayOperator(operator) {
   return {
     ...operator,
     slug,
-    country: operatorCountryCode(operator)
+    country: operatorCountryCode(operator),
+    // Les slugs d'affichage historiques (moov-bj, mtn-ci...) ne sont pas
+    // ceux attendus par la documentation SebPay (moov, mtn, orange...).
+    api_slug: String(operator.api_slug || operator.apiSlug || slug).trim().toLowerCase()
   };
 }
 
@@ -128,7 +154,7 @@ let operatorsCache = { at: 0, list: [], live: false };
 async function sebpayOperators() {
   if (Date.now() - operatorsCache.at < 10 * 60 * 1000 && operatorsCache.list.length) return operatorsCache.list;
   const resp = await sebpayJson('GET', '/operators').catch(() => ({ ok: false, data: {} }));
-  const rawList = Array.isArray(resp.data) ? resp.data : (Array.isArray(resp.data.operators) ? resp.data.operators : []);
+  const rawList = operatorArray(resp.data);
   const list = rawList.map(normalizeSebpayOperator).filter(Boolean);
   if (resp.ok && list.length) {
     operatorsCache = { at: Date.now(), list, live: true };
@@ -136,12 +162,23 @@ async function sebpayOperators() {
   }
   return operatorsCache.live && operatorsCache.list.length ? operatorsCache.list : catalog.OPERATORS;
 }
+
+function sameOperator(o, wanted) {
+  const target = String(wanted || '').trim().toLowerCase();
+  const candidates = [o && o.slug, o && o.code, o && o.api_slug]
+    .filter(Boolean)
+    .map(v => String(v).trim().toLowerCase());
+  if (candidates.includes(target)) return true;
+  // Compatibilité avec l'ancien catalogue local : moov-bj == moov pour BJ.
+  return candidates.some(candidate => candidate === target.replace(/-[a-z]{2}$/, ''));
+}
+
 async function sebpayOperator(slug) {
   const wanted = String(slug || '').trim().toLowerCase();
   const list = await sebpayOperators().catch(() => catalog.OPERATORS);
-  const liveMatch = list.find((o) => String(o.slug || '').toLowerCase() === wanted);
+  const liveMatch = list.find((o) => sameOperator(o, wanted));
   if (liveMatch) return liveMatch;
-  return operatorsCache.live ? null : (catalog.OPERATORS.find((o) => o.slug === wanted) || null);
+  return operatorsCache.live ? null : (catalog.OPERATORS.find((o) => sameOperator(o, wanted)) || null);
 }
 // Opérateurs d'un pays donné (live si possible, sinon catalogue)
 async function sebpayOperatorsByCountry(countryCode) {
@@ -391,15 +428,26 @@ router.get('/auth/me', authRequired, h(async (req, res) => {
       (SELECT count(*) FROM task_submissions WHERE user_id=$1 AND status='rejected')::int AS refusees`,
     [req.user.id]
   );
-  res.json({ user: publicUser(r.rows[0]), stats: stats.rows[0], rules: { taskReward: TASK_REWARD, minWithdrawal: MIN_WITHDRAWAL } });
+  const settings = await currentSettings();
+  res.json({
+    user: publicUser(r.rows[0]),
+    stats: stats.rows[0],
+    rules: { taskReward: effectiveReward(settings), minWithdrawal: settings.minWithdrawal, billingMode: settings.billingMode }
+  });
 }));
 
 // ===================== META / CAPACITE ========================
-router.get('/meta', (req, res) => res.json({
-  taskReward: TASK_REWARD,
-  pricePerInteraction: PRICE_PER_INTERACTION,
-  minCampaignAmount: MIN_CAMPAIGN_AMOUNT,
-  minWithdrawal: MIN_WITHDRAWAL
+router.get('/meta', h(async (req, res) => {
+  const settings = await currentSettings();
+  res.json({
+    billingMode: settings.billingMode,
+    taskReward: effectiveReward(settings),
+    pricePerInteraction: effectivePrice(settings),
+    configuredTaskReward: settings.taskReward,
+    configuredPricePerInteraction: settings.pricePerInteraction,
+    minCampaignAmount: settings.billingMode === 'free' ? 0 : settings.minCampaignAmount,
+    minWithdrawal: settings.minWithdrawal
+  });
 }));
 
 // ==================== SANTE DU DEPLOIEMENT =====================
@@ -409,6 +457,7 @@ const check = (name, configured, status, detail, required = true) => ({
 });
 
 async function deploymentHealth() {
+  const settings = await currentSettings().catch(() => fallbackSettings());
   const checks = [];
   const databaseConfigured = envSet(process.env.DATABASE_URL);
   if (!databaseConfigured) {
@@ -451,18 +500,20 @@ async function deploymentHealth() {
 
   checks.push(check(
     'Assistant Groq',
-    groq.apiKey.length > 0,
-    groq.apiKey.length > 0 ? 'ok' : 'warning',
-    groq.apiKey.length > 0 ? 'Clé détectée, modèle : ' + groq.model : 'GROQ_API_KEY manque : l’assistant restera indisponible.',
+    settings.groqApiKey.length > 0,
+    settings.groqApiKey.length > 0 ? 'ok' : 'warning',
+    settings.groqApiKey.length > 0 ? 'Clé détectée, modèle : ' + settings.groqModel : 'Clé Groq manquante : l’assistant restera indisponible.',
     false
   ));
   checks.push(check(
     'Paiements SebPay',
-    Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY),
-    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY ? 'ok' : 'warning',
-    SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
-      ? 'Clés SebPay détectées.'
-      : 'SEBPAY_PUBLIC_KEY et SEBPAY_SECRET_KEY manquent : les campagnes ne pourront pas être payées.',
+    settings.billingMode === 'free' || Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY),
+    settings.billingMode === 'free' || (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY) ? 'ok' : 'warning',
+    settings.billingMode === 'free'
+      ? 'Mode Free actif : aucun paiement SebPay n’est requis pour les campagnes.'
+      : (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
+        ? 'Clés SebPay détectées.'
+        : 'SEBPAY_PUBLIC_KEY et SEBPAY_SECRET_KEY manquent : les campagnes ne pourront pas être payées.'),
     false
   ));
   checks.push(check(
@@ -500,15 +551,19 @@ async function deploymentHealth() {
     false
   ));
 
-  const rulesValid = Number.isFinite(TASK_REWARD) && TASK_REWARD > 0
-    && Number.isFinite(PRICE_PER_INTERACTION) && PRICE_PER_INTERACTION > 0
-    && Number.isFinite(MIN_CAMPAIGN_AMOUNT) && MIN_CAMPAIGN_AMOUNT > 0
-    && Number.isFinite(MIN_WITHDRAWAL) && MIN_WITHDRAWAL > 0;
+  const rulesValid = Number.isFinite(settings.taskReward) && settings.taskReward > 0
+    && Number.isFinite(settings.pricePerInteraction) && settings.pricePerInteraction > 0
+    && (settings.billingMode === 'free' || (Number.isFinite(settings.minCampaignAmount) && settings.minCampaignAmount > 0))
+    && Number.isFinite(settings.minWithdrawal) && settings.minWithdrawal > 0;
   checks.push(check(
     'Règles métier',
     rulesValid,
     rulesValid ? 'ok' : 'error',
-    rulesValid ? 'Récompense, prix, campagne minimum et retrait minimum sont valides.' : 'TASK_REWARD, PRICE_PER_INTERACTION, MIN_CAMPAIGN_AMOUNT ou MIN_WITHDRAWAL est invalide.'
+    rulesValid
+      ? (settings.billingMode === 'free'
+        ? 'Mode Free actif : les campagnes et commissions sont gratuites.'
+        : 'Récompense, prix, campagne minimum et retrait minimum sont valides.')
+      : 'Un réglage métier est invalide.'
   ));
 
   const hasError = checks.some(c => c.status === 'error');
@@ -530,10 +585,74 @@ router.get('/admin/config-status', adminRequired, h(async (req, res) => {
   res.json(await deploymentHealth());
 }));
 
+// Réglages modifiables depuis le panneau administrateur. La clé Groq n'est
+// jamais renvoyée au navigateur : seule sa présence et une version masquée
+// sont affichées.
+router.get('/admin/settings', adminRequired, h(async (req, res) => {
+  const settings = await currentSettings();
+  res.json({
+    billingMode: settings.billingMode,
+    taskReward: settings.taskReward,
+    pricePerInteraction: settings.pricePerInteraction,
+    minCampaignAmount: settings.minCampaignAmount,
+    minWithdrawal: settings.minWithdrawal,
+    groqModel: settings.groqModel,
+    groqConfigured: Boolean(settings.groqApiKey),
+    groqKeyMasked: settings.groqApiKey
+      ? settings.groqApiKey.slice(0, 5) + '••••••••' + settings.groqApiKey.slice(-4)
+      : ''
+  });
+}));
+
+router.post('/admin/settings', adminRequired, h(async (req, res) => {
+  const body = req.body || {};
+  const billingMode = String(body.billingMode || '').trim().toLowerCase();
+  if (!['paid', 'free'].includes(billingMode))
+    return res.status(400).json({ error: 'Choisissez le mode Payant ou Free.' });
+  const taskReward = Number(body.taskReward);
+  const pricePerInteraction = Number(body.pricePerInteraction);
+  if (!Number.isFinite(taskReward) || taskReward <= 0 || !Number.isFinite(pricePerInteraction) || pricePerInteraction <= 0)
+    return res.status(400).json({ error: 'Les montants doivent être des nombres supérieurs à zéro.' });
+  const minCampaignAmount = body.minCampaignAmount == null ? null : Number(body.minCampaignAmount);
+  const minWithdrawal = body.minWithdrawal == null ? null : Number(body.minWithdrawal);
+  if ((minCampaignAmount != null && (!Number.isFinite(minCampaignAmount) || minCampaignAmount <= 0))
+    || (minWithdrawal != null && (!Number.isFinite(minWithdrawal) || minWithdrawal <= 0)))
+    return res.status(400).json({ error: 'Les seuils doivent être des nombres supérieurs à zéro.' });
+
+  const updates = [
+    ['billing_mode', billingMode],
+    ['task_reward', taskReward],
+    ['price_per_interaction', pricePerInteraction]
+  ];
+  if (minCampaignAmount != null) updates.push(['min_campaign_amount', minCampaignAmount]);
+  if (minWithdrawal != null) updates.push(['min_withdrawal', minWithdrawal]);
+  if (body.groqModel && String(body.groqModel).trim()) updates.push(['groq_model', String(body.groqModel).trim().slice(0, 120)]);
+  if (body.clearGroqKey === true) updates.push(['groq_api_key', '']);
+  else if (typeof body.groqApiKey === 'string' && body.groqApiKey.trim()) updates.push(['groq_api_key', body.groqApiKey.trim()]);
+
+  for (const [key, value] of updates) {
+    await pool.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [key, String(value)]
+    );
+  }
+  logAction(req.user.id, 'update_settings', 'app_settings', updates.map(([key]) => key).join(','));
+  const settings = await currentSettings();
+  res.json({
+    ok: true,
+    billingMode: settings.billingMode,
+    taskReward: settings.taskReward,
+    pricePerInteraction: settings.pricePerInteraction,
+    groqConfigured: Boolean(settings.groqApiKey)
+  });
+}));
+
 // ========================= ASSISTANT IA ========================
 router.post('/assistant', h(async (req, res) => {
-  if (!groq.apiKey)
-    return res.status(503).json({ error: 'Assistant momentanément indisponible : GROQ_API_KEY n’est pas configurée.' });
+  const settings = await currentSettings();
+  if (!settings.groqApiKey)
+    return res.status(503).json({ error: 'Assistant momentanément indisponible : la clé Groq n’est pas configurée.' });
 
   const incoming = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
   const messages = incoming
@@ -543,18 +662,18 @@ router.post('/assistant', h(async (req, res) => {
   if (!messages.length || messages[messages.length - 1].role !== 'user')
     return res.status(400).json({ error: 'Écrivez une question pour démarrer la conversation.' });
 
-  const response = await fetch(groq.endpoint, {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + groq.apiKey },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + settings.groqApiKey },
     body: JSON.stringify({
-      model: groq.model,
+      model: settings.groqModel,
       temperature: 0.35,
       max_tokens: 280,
       messages: [
         {
           role: 'system',
           content: `Tu es Kora, l'assistant chaleureux et précis de KoraBoost, une plateforme francophone de tâches sociales.
-Réponds toujours en français simple, en 2 à 5 phrases maximum. Aide les utilisateurs à comprendre : inscription, tâches Facebook/TikTok (1 like et 5 commentaires), envoi des 6 captures, validation, solde, retrait minimum de ${MIN_WITHDRAWAL} FCFA, et aide les clients à lancer une campagne.
+ Réponds toujours en français simple, en 2 à 5 phrases maximum. Aide les utilisateurs à comprendre : inscription, tâches Facebook/TikTok (1 like et 5 commentaires), envoi des 6 captures, validation, solde, retrait minimum de ${settings.minWithdrawal} FCFA, et aide les clients à lancer une campagne.
 Ne promets jamais un paiement ou une validation. Ne demande jamais de mot de passe, clé API, code secret ou information bancaire complète. Si la question concerne un dossier précis, demande de contacter l’administrateur depuis les informations de leur compte. Si tu ne sais pas, dis-le clairement et propose l’étape sûre suivante.`
         },
         ...messages
@@ -568,7 +687,7 @@ Ne promets jamais un paiement ou une validation. Ne demande jamais de mot de pas
   }
   const answer = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
   if (!answer) return res.status(502).json({ error: 'L’assistant n’a pas renvoyé de réponse.' });
-  res.json({ answer: String(answer).trim(), model: groq.model });
+  res.json({ answer: String(answer).trim(), model: settings.groqModel });
 }));
 
 // Liste des pays disponibles (code ISO, indicatif, devise)
@@ -599,6 +718,7 @@ router.get('/sebpay/operators', h(async (req, res) => {
 
 // ========================= CAMPAGNES (CLIENT) =================
 router.post('/campaigns', authRequired, h(async (req, res) => {
+  const settings = await currentSettings();
   const {
     link, interactions, operator, otp_code: otpCode,
     country_code: bodyCountryCode, phone: bodyPhone
@@ -607,14 +727,36 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const platform = detectPlatform(link);
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
   if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Nombre d\'interactions invalide.' });
-  const amount = n * PRICE_PER_INTERACTION;
-  if (!Number.isFinite(amount) || amount < MIN_CAMPAIGN_AMOUNT)
-    return res.status(400).json({ error: 'Le montant minimum d’une campagne est de ' + MIN_CAMPAIGN_AMOUNT + ' FCFA.' });
-  if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY)
+  const freeMode = settings.billingMode === 'free';
+  const amount = freeMode ? 0 : n * settings.pricePerInteraction;
+  if (!freeMode && (!Number.isFinite(amount) || amount < settings.minCampaignAmount))
+    return res.status(400).json({ error: 'Le montant minimum d’une campagne est de ' + settings.minCampaignAmount + ' FCFA.' });
+  if (!freeMode && (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY))
     return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
   const me = await pool.query('SELECT nom, prenom, telephone, pays FROM users WHERE id = $1', [req.user.id]);
   const u = me.rows[0];
+
+  // En mode Free, aucun compte Mobile Money n'est nécessaire : le lien est
+  // enregistré directement et aucune commission ne sera versée.
+  if (freeMode) {
+    const freeReference = 'KORABOOST-FREE-' + crypto.randomBytes(8).toString('hex');
+    const ins = await pool.query(
+      `INSERT INTO campaigns
+        (user_id, platform, link, interactions, amount, payment_reference, payment_status, status, link_confirmed_at)
+       VALUES ($1,$2,$3,$4,0,$5,'paid','pending_admin',now()) RETURNING id`,
+      [req.user.id, platform, link, n, freeReference]
+    );
+    const campaignId = ins.rows[0].id;
+    return res.json({
+      campaignId,
+      amount: 0,
+      paymentStatus: 'free',
+      free: true,
+      payUrl: null,
+      successUrl: '/success.html?campaign=' + encodeURIComponent(campaignId)
+    });
+  }
 
   // 1) Pays : celui choisi dans le formulaire, sinon celui du profil
   const countryCode = sebpayCountryCode(bodyCountryCode, u.pays);
@@ -624,10 +766,11 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const operatorSlug = String(operator || '').trim().toLowerCase();
   if (!operatorSlug) return res.status(400).json({ error: 'Sélectionnez votre réseau Mobile Money.' });
   const countryOperators = await sebpayOperatorsByCountry(countryCode);
-  const operatorInfo = countryOperators.find((o) => String(o.slug).toLowerCase() === operatorSlug)
+  const operatorInfo = countryOperators.find((o) => sameOperator(o, operatorSlug))
     || await sebpayOperator(operatorSlug);
   if (!operatorInfo || operatorCountryCode(operatorInfo) !== countryCode)
     return res.status(400).json({ error: "Ce réseau n'est pas disponible dans le pays sélectionné." });
+  const apiOperator = String(operatorInfo.api_slug || operatorInfo.slug).trim().toLowerCase();
 
   // 3) Numéro : format international sans "+" exigé par SebPay
   const phone = normalizePhone(bodyPhone || u.telephone, countryCode);
@@ -652,7 +795,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     amount,
     currency: sebpayCurrencyFor(countryCode),
     phone,
-    operator: operatorSlug,
+    operator: apiOperator,
     country: countryCode,
     external_reference: externalReference,
     callback_url: PUBLIC_URL + '/api/sebpay/webhook',
@@ -703,7 +846,8 @@ router.post('/sebpay/webhook', h(async (req, res) => {
 router.get('/campaigns/:id/payment-status', authRequired, h(async (req, res) => {
   const r = await pool.query(
     `SELECT c.id, c.platform, c.link, c.amount, c.interactions, c.status, c.payment_status,
-            c.link_confirmed_at, c.payment_reference, c.sebpay_transaction_id
+            c.link_confirmed_at, c.payment_reference, c.sebpay_transaction_id,
+            (c.payment_reference LIKE 'KORABOOST-FREE-%') AS free
      FROM campaigns c WHERE c.id=$1 AND c.user_id=$2`,
     [req.params.id, req.user.id]
   );
@@ -734,7 +878,11 @@ router.get('/campaigns/mine', authRequired, h(async (req, res) => {
      FROM campaigns c WHERE c.user_id=$1 ORDER BY c.id DESC`,
     [req.user.id]
   );
-  res.json(r.rows.map(c => ({ ...c, amount: Number(c.amount) })));
+  res.json(r.rows.map(c => ({
+    ...c,
+    amount: Number(c.amount),
+    free: String(c.payment_reference || '').startsWith('KORABOOST-FREE-')
+  })));
 }));
 
 // ========================= TACHES (UTILISATEUR) ===============
@@ -814,14 +962,23 @@ router.get('/withdraw/methods', authRequired, h(async (req, res) => {
 }));
 
 router.post('/withdrawals', authRequired, h(async (req, res) => {
+  const settings = await currentSettings();
   const { amount, country, countryCode, phone, withdraw_mode } = req.body || {};
   const amt = parseFloat(amount);
-  if (!amt || amt < MIN_WITHDRAWAL)
-    return res.status(400).json({ error: 'Retrait impossible. Vous devez avoir au moins ' + MIN_WITHDRAWAL + ' FCFA dans votre solde.' });
+  if (!amt || amt < settings.minWithdrawal)
+    return res.status(400).json({ error: 'Retrait impossible. Vous devez avoir au moins ' + settings.minWithdrawal + ' FCFA dans votre solde.' });
   if (!country || !countryCode || !phone || !withdraw_mode)
     return res.status(400).json({ error: 'Pays, numéro et méthode de retrait obligatoires.' });
   if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY)
     return res.status(500).json({ error: 'Décaissement non configuré (clés SebPay manquantes côté serveur).' });
+  const normalizedCountry = sebpayCountryCode(countryCode, country);
+  const requestedOperator = String(withdraw_mode).trim().toLowerCase();
+  const payoutOperators = await sebpayOperatorsByCountry(normalizedCountry);
+  const payoutInfo = payoutOperators.find((o) => sameOperator(o, requestedOperator))
+    || await sebpayOperator(requestedOperator);
+  if (!normalizedCountry || !payoutInfo || operatorCountryCode(payoutInfo) !== normalizedCountry)
+    return res.status(400).json({ error: 'Ce réseau de retrait n’est pas disponible dans le pays sélectionné.' });
+  const apiOperator = String(payoutInfo.api_slug || payoutInfo.slug).trim().toLowerCase();
 
   const client = await pool.connect();
   try {
@@ -837,12 +994,10 @@ router.post('/withdrawals', authRequired, h(async (req, res) => {
       [req.user.id, amt, 'retrait #' + w.rows[0].id]);
 
     const payoutReference = 'KORABOOST-WITHDRAW-' + w.rows[0].id + '-' + crypto.randomBytes(5).toString('hex');
-    const operator = String(withdraw_mode).trim().toLowerCase();
-    const normalizedCountry = sebpayCountryCode(countryCode, country);
     const payout = await sebpayJson('POST', '/payouts', {
       recipient_name: 'Utilisateur KoraBoost #' + req.user.id,
       phone: normalizePhone(phone, normalizedCountry),
-      operator,
+      operator: apiOperator,
       country: normalizedCountry,
       amount: amt,
       currency: sebpayCurrencyFor(normalizedCountry),
@@ -894,6 +1049,7 @@ router.get('/withdrawals/mine', authRequired, h(async (req, res) => {
 
 // ========================= ADMIN ==============================
 router.get('/admin/stats', adminRequired, h(async (req, res) => {
+  const settings = await currentSettings();
   const r = await pool.query(
     `SELECT
       (SELECT count(*) FROM users WHERE role='user')::int AS utilisateurs,
@@ -905,7 +1061,12 @@ router.get('/admin/stats', adminRequired, h(async (req, res) => {
       (SELECT COALESCE(sum(amount),0) FROM payments WHERE status='paid')::float AS encaisse,
       (SELECT COALESCE(sum(amount),0) FROM withdrawals WHERE status='success')::float AS decaisse`
   );
-  res.json({ ...r.rows[0], capacite: r.rows[0].actifs, recompense_tache: TASK_REWARD });
+  res.json({
+    ...r.rows[0],
+    capacite: r.rows[0].actifs,
+    recompense_tache: effectiveReward(settings),
+    billing_mode: settings.billingMode
+  });
 }));
 
 router.get('/admin/users', adminRequired, h(async (req, res) => {
@@ -936,7 +1097,11 @@ router.get('/admin/campaigns', adminRequired, h(async (req, res) => {
      WHERE c.status=$1 ORDER BY c.id DESC LIMIT 200`,
     [status]
   );
-  res.json(r.rows.map(c => ({ ...c, amount: Number(c.amount) })));
+  res.json(r.rows.map(c => ({
+    ...c,
+    amount: Number(c.amount),
+    free: String(c.payment_reference || '').startsWith('KORABOOST-FREE-')
+  })));
 }));
 
 router.post('/admin/campaigns/:id/decision', adminRequired, h(async (req, res) => {
@@ -997,23 +1162,33 @@ router.get('/admin/submissions/:id', adminRequired, h(async (req, res) => {
 }));
 
 router.post('/admin/submissions/:id/review', adminRequired, h(async (req, res) => {
+  const settings = await currentSettings();
   const { approve, reason } = req.body || {};
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const s = await client.query(
-      'SELECT s.*, t.campaign_id FROM task_submissions s JOIN tasks t ON t.id=s.task_id WHERE s.id=$1 FOR UPDATE',
+      `SELECT s.*, t.campaign_id, c.payment_reference
+       FROM task_submissions s
+       JOIN tasks t ON t.id=s.task_id
+       JOIN campaigns c ON c.id=t.campaign_id
+       WHERE s.id=$1 FOR UPDATE`,
       [req.params.id]
     );
     if (!s.rowCount) throw httpError(404, 'Preuve introuvable.');
     if (s.rows[0].status !== 'pending') throw httpError(409, 'Cette preuve a déjà été traitée.');
     const sub = s.rows[0];
+    const reward = String(sub.payment_reference || '').startsWith('KORABOOST-FREE-')
+      ? 0
+      : effectiveReward(settings);
     if (approve) {
       await client.query("UPDATE task_submissions SET status='approved', reviewed_at=now() WHERE id=$1", [sub.id]);
       await client.query("UPDATE tasks SET status='approved' WHERE id=$1", [sub.task_id]);
-      await client.query('UPDATE users SET balance = balance + $2 WHERE id=$1', [sub.user_id, TASK_REWARD]);
-      await client.query("INSERT INTO transactions (user_id, type, amount, ref) VALUES ($1,'reward',$2,$3)",
-        [sub.user_id, TASK_REWARD, 'tâche #' + sub.task_id + ' validée']);
+      if (reward > 0) {
+        await client.query('UPDATE users SET balance = balance + $2 WHERE id=$1', [sub.user_id, reward]);
+        await client.query("INSERT INTO transactions (user_id, type, amount, ref) VALUES ($1,'reward',$2,$3)",
+          [sub.user_id, reward, 'tâche #' + sub.task_id + ' validée']);
+      }
       const prog = await pool.query(
         "SELECT c.interactions, (SELECT count(*) FROM tasks WHERE campaign_id=c.id AND status='approved')::int AS faits FROM campaigns c WHERE c.id=$1",
         [sub.campaign_id]
