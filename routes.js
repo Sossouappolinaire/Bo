@@ -63,32 +63,91 @@ async function sebpayJson(method, endpoint, body) {
 const sebpayCurrencyFor = (countryCode) =>
   catalog.byCode(countryCode) ? catalog.currencyFor(countryCode) : SEBPAY_CURRENCY;
 
+// SebPay renvoie actuellement `country` comme un objet (avec notamment
+// `code`/`country_code` et `country_name`). Certaines anciennes réponses
+// renvoyaient directement "BJ". On accepte les deux formats afin de ne pas
+// retomber silencieusement sur un slug local qui n'est pas configuré chez
+// SebPay.
+function operatorCountryCode(operator) {
+  if (!operator || typeof operator !== 'object') return '';
+  const country = operator.country;
+  const values = [
+    country,
+    operator.country_code,
+    operator.countryCode,
+    operator.iso_code,
+    operator.iso
+  ];
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (/^[A-Za-z]{2}$/.test(text)) return text.toUpperCase();
+      const byName = catalog.codeFromName(text);
+      if (byName) return byName;
+    }
+  }
+  if (country && typeof country === 'object') {
+    const nestedValues = [
+      country.code,
+      country.country_code,
+      country.countryCode,
+      country.iso_code,
+      country.iso,
+      country.country_name,
+      country.name,
+      country.label
+    ];
+    for (const value of nestedValues) {
+      if (typeof value !== 'string') continue;
+      const text = value.trim();
+      if (/^[A-Za-z]{2}$/.test(text)) return text.toUpperCase();
+      const byName = catalog.codeFromName(text);
+      if (byName) return byName;
+    }
+  }
+  return '';
+}
+
+function normalizeSebpayOperator(operator) {
+  if (!operator || typeof operator !== 'object') return null;
+  const slug = String(operator.slug || operator.code || operator.operator || '').trim().toLowerCase();
+  if (!slug) return null;
+  return {
+    ...operator,
+    slug,
+    country: operatorCountryCode(operator)
+  };
+}
+
 // Cache court de GET /operators : la liste LIVE est prioritaire, le catalogue
-// local sert uniquement de repli si l'API SebPay est injoignable.
-let operatorsCache = { at: 0, list: [] };
+// local sert uniquement de repli si l'API SebPay est injoignable. `live`
+// permet d'éviter d'afficher des opérateurs du catalogue quand SebPay a bien
+// répondu mais ne les propose pas pour le compte/pays demandé.
+let operatorsCache = { at: 0, list: [], live: false };
 async function sebpayOperators() {
   if (Date.now() - operatorsCache.at < 10 * 60 * 1000 && operatorsCache.list.length) return operatorsCache.list;
   const resp = await sebpayJson('GET', '/operators').catch(() => ({ ok: false, data: {} }));
-  const list = Array.isArray(resp.data) ? resp.data : (Array.isArray(resp.data.operators) ? resp.data.operators : []);
+  const rawList = Array.isArray(resp.data) ? resp.data : (Array.isArray(resp.data.operators) ? resp.data.operators : []);
+  const list = rawList.map(normalizeSebpayOperator).filter(Boolean);
   if (resp.ok && list.length) {
-    operatorsCache = { at: Date.now(), list };
+    operatorsCache = { at: Date.now(), list, live: true };
     return list;
   }
-  return operatorsCache.list.length ? operatorsCache.list : catalog.OPERATORS;
+  return operatorsCache.live && operatorsCache.list.length ? operatorsCache.list : catalog.OPERATORS;
 }
 async function sebpayOperator(slug) {
   const wanted = String(slug || '').trim().toLowerCase();
   const list = await sebpayOperators().catch(() => catalog.OPERATORS);
-  return list.find((o) => String(o.slug || '').toLowerCase() === wanted)
-    || catalog.OPERATORS.find((o) => o.slug === wanted)
-    || null;
+  const liveMatch = list.find((o) => String(o.slug || '').toLowerCase() === wanted);
+  if (liveMatch) return liveMatch;
+  return operatorsCache.live ? null : (catalog.OPERATORS.find((o) => o.slug === wanted) || null);
 }
 // Opérateurs d'un pays donné (live si possible, sinon catalogue)
 async function sebpayOperatorsByCountry(countryCode) {
   const code = String(countryCode || '').trim().toUpperCase();
   const list = await sebpayOperators().catch(() => catalog.OPERATORS);
-  const filtered = list.filter((o) => String(o.country || '').toUpperCase() === code);
-  return filtered.length ? filtered : catalog.operatorsFor(code);
+  const filtered = list.filter((o) => operatorCountryCode(o) === code);
+  return filtered.length ? filtered : (operatorsCache.live ? [] : catalog.operatorsFor(code));
 }
 
 // SebPay exige un numero international SANS "+" : on prefixe avec l'indicatif du pays.
@@ -515,11 +574,11 @@ router.get('/campaigns/capacity', h(async (req, res) => {
 // Liste des pays disponibles (code ISO, indicatif, devise)
 router.get('/sebpay/countries', h(async (req, res) => {
   const live = await sebpayOperators().catch(() => []);
-  const available = new Set(live.map((o) => String(o.country || '').toUpperCase()));
+  const available = new Set(live.map(operatorCountryCode).filter(Boolean));
   const list = catalog.COUNTRIES
     .filter((c) => (available.size ? available.has(c.code) : true))
     .map((c) => ({ ...c }));
-  res.json({ success: true, data: list.length ? list : catalog.COUNTRIES });
+  res.json({ success: true, data: operatorsCache.live ? list : (list.length ? list : catalog.COUNTRIES) });
 }));
 
 // Liste des operateurs d'un pays (slug + otp_required + ussd_code)
@@ -531,7 +590,7 @@ router.get('/sebpay/operators', h(async (req, res) => {
     data: list.map((o) => ({
       slug: o.slug,
       name: o.name || o.slug,
-      country: o.country,
+      country: operatorCountryCode(o),
       otp_required: Boolean(o.otp_required),
       ussd_code: o.ussd_code || null
     }))
@@ -562,13 +621,13 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const countryCode = sebpayCountryCode(bodyCountryCode, u.pays);
   if (!countryCode) return res.status(400).json({ error: 'Sélectionnez votre pays avant de payer.' });
 
-  // 2) Opérateur : doit appartenir au pays choisi (slug complet, ex. mtn-bj)
+  // 2) Opérateur : doit appartenir au pays choisi et venir de la liste live
   const operatorSlug = String(operator || '').trim().toLowerCase();
   if (!operatorSlug) return res.status(400).json({ error: 'Sélectionnez votre réseau Mobile Money.' });
   const countryOperators = await sebpayOperatorsByCountry(countryCode);
   const operatorInfo = countryOperators.find((o) => String(o.slug).toLowerCase() === operatorSlug)
     || await sebpayOperator(operatorSlug);
-  if (!operatorInfo || String(operatorInfo.country || countryCode).toUpperCase() !== countryCode)
+  if (!operatorInfo || operatorCountryCode(operatorInfo) !== countryCode)
     return res.status(400).json({ error: "Ce réseau n'est pas disponible dans le pays sélectionné." });
 
   // 3) Numéro : format international sans "+" exigé par SebPay
