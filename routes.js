@@ -15,6 +15,7 @@ const httpError = (status, msg) => Object.assign(new Error(msg), { status });
 // ---- Regles metier (configurables via .env / Render) ----
 const TASK_REWARD = parseFloat(process.env.TASK_REWARD || '3');
 const PRICE_PER_INTERACTION = parseFloat(process.env.PRICE_PER_INTERACTION || '1');
+const MIN_CAMPAIGN_AMOUNT = parseFloat(process.env.MIN_CAMPAIGN_AMOUNT || '100');
 const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL || '300');
 const PUBLIC_URL = publicUrl;
 const SEBPAY_API = (process.env.SEBPAY_API_URL || 'https://newapi.sebpay.bj/api/v1').replace(/\/+$/, '');
@@ -395,7 +396,10 @@ router.get('/auth/me', authRequired, h(async (req, res) => {
 
 // ===================== META / CAPACITE ========================
 router.get('/meta', (req, res) => res.json({
-  taskReward: TASK_REWARD, pricePerInteraction: PRICE_PER_INTERACTION, minWithdrawal: MIN_WITHDRAWAL
+  taskReward: TASK_REWARD,
+  pricePerInteraction: PRICE_PER_INTERACTION,
+  minCampaignAmount: MIN_CAMPAIGN_AMOUNT,
+  minWithdrawal: MIN_WITHDRAWAL
 }));
 
 // ==================== SANTE DU DEPLOIEMENT =====================
@@ -498,12 +502,13 @@ async function deploymentHealth() {
 
   const rulesValid = Number.isFinite(TASK_REWARD) && TASK_REWARD > 0
     && Number.isFinite(PRICE_PER_INTERACTION) && PRICE_PER_INTERACTION > 0
+    && Number.isFinite(MIN_CAMPAIGN_AMOUNT) && MIN_CAMPAIGN_AMOUNT > 0
     && Number.isFinite(MIN_WITHDRAWAL) && MIN_WITHDRAWAL > 0;
   checks.push(check(
     'Règles métier',
     rulesValid,
     rulesValid ? 'ok' : 'error',
-    rulesValid ? 'Récompense, prix et retrait minimum sont valides.' : 'TASK_REWARD, PRICE_PER_INTERACTION ou MIN_WITHDRAWAL est invalide.'
+    rulesValid ? 'Récompense, prix, campagne minimum et retrait minimum sont valides.' : 'TASK_REWARD, PRICE_PER_INTERACTION, MIN_CAMPAIGN_AMOUNT ou MIN_WITHDRAWAL est invalide.'
   ));
 
   const hasError = checks.some(c => c.status === 'error');
@@ -566,11 +571,6 @@ Ne promets jamais un paiement ou une validation. Ne demande jamais de mot de pas
   res.json({ answer: String(answer).trim(), model: groq.model });
 }));
 
-router.get('/campaigns/capacity', h(async (req, res) => {
-  const r = await pool.query("SELECT count(*)::int AS n FROM users WHERE role='user' AND status='active'");
-  res.json({ users: r.rows[0].n, maxInteractions: r.rows[0].n });
-}));
-
 // Liste des pays disponibles (code ISO, indicatif, devise)
 router.get('/sebpay/countries', h(async (req, res) => {
   const live = await sebpayOperators().catch(() => []);
@@ -607,13 +607,12 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const platform = detectPlatform(link);
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
   if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Nombre d\'interactions invalide.' });
-  const cap = await pool.query("SELECT count(*)::int AS n FROM users WHERE role='user' AND status='active'");
-  if (n > cap.rows[0].n)
-    return res.status(400).json({ error: 'Capacité dépassée : ' + cap.rows[0].n + ' utilisateur(s) actif(s) au maximum pour le moment.' });
+  const amount = n * PRICE_PER_INTERACTION;
+  if (!Number.isFinite(amount) || amount < MIN_CAMPAIGN_AMOUNT)
+    return res.status(400).json({ error: 'Le montant minimum d’une campagne est de ' + MIN_CAMPAIGN_AMOUNT + ' FCFA.' });
   if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY)
     return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
-  const amount = n * PRICE_PER_INTERACTION;
   const me = await pool.query('SELECT nom, prenom, telephone, pays FROM users WHERE id = $1', [req.user.id]);
   const u = me.rows[0];
 

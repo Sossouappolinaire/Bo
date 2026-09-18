@@ -389,12 +389,14 @@ async function vWithdraw() {
 }
 
 async function vCampaigns() {
-  const [mine, cap, meta] = await Promise.all([api('/campaigns/mine'), api('/campaigns/capacity'), api('/meta')]);
+  const [mine, meta] = await Promise.all([api('/campaigns/mine'), api('/meta')]);
   const price = meta.pricePerInteraction;
+  const minAmount = Number(meta.minCampaignAmount || 100);
+  const minInteractions = Math.max(1, Math.ceil(minAmount / price));
   return `
   <div class="card">
     <h2>➕ Nouvelle campagne</h2>
-    <p class="muted">👥 Utilisateurs actifs : <b>${cap.users}</b> — ❤️ Capacité actuelle : <b>${cap.maxInteractions} likes</b> maximum.</p>
+    <p class="muted">💰 Montant minimum d'une campagne : <b>${fcfa(minAmount)}</b>.</p>
     <form id="f-campaign">
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
@@ -410,8 +412,8 @@ async function vCampaigns() {
         <input name="otp_code" id="c-otp" placeholder="Code reçu par USSD" autocomplete="one-time-code">
       </div>
       <label>Nombre d'interactions souhaitées</label>
-      <input name="interactions" id="c-n" type="number" min="1" max="${cap.maxInteractions}" value="1" required>
-      <p>Prix : <b id="c-price">${fcfa(price)}</b> <span class="muted">(${price} FCFA / interaction)</span></p>
+      <input name="interactions" id="c-n" type="number" min="${minInteractions}" value="${minInteractions}" required>
+      <p>Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span></p>
       <button class="btn btn-b" style="width:100%">Payer avec SebPay</button>
     </form>
   </div>
@@ -542,7 +544,11 @@ function wdBadge(st) {
   return '<span class="badge b-r">❌ Échoué</span>';
 }
 
-async function bindCampaign(price) {
+async function bindCampaign(meta) {
+  const price = Number(meta.pricePerInteraction);
+  const minAmount = Number(meta.minCampaignAmount || 100);
+  const minInteractions = Math.max(1, Math.ceil(minAmount / price));
+  $('#c-n').min = String(minInteractions);
   $('#c-n').oninput = (e) => { $('#c-price').textContent = fcfa((parseInt(e.target.value) || 0) * price); };
 
   const selCountry = $('#c-operator') ? $('#c-country') : null;
@@ -711,7 +717,7 @@ async function route() {
       case '#/taches': app.innerHTML = await vDashboard(); break;
       case '#/historique': app.innerHTML = await vHistory(); loadTx(); break;
       case '#/retrait': app.innerHTML = await vWithdraw(); bindWithdraw(); break;
-      case '#/campagnes': app.innerHTML = await vCampaigns(); await bindCampaign((await api('/meta')).pricePerInteraction); break;
+      case '#/campagnes': app.innerHTML = await vCampaigns(); await bindCampaign(await api('/meta')); break;
       default: app.innerHTML = vHome();
     }
   } catch (err) {

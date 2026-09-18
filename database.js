@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -137,11 +138,51 @@ async function seedAdmin() {
   }
 }
 
+async function seedTestUsers() {
+  if (String(process.env.SEED_TEST_USERS || '').toLowerCase() !== 'true') return;
+
+  const count = 101;
+  const client = await pool.connect();
+  let created = 0;
+  try {
+    await client.query('BEGIN');
+    // Évite les doublons si Render démarre plusieurs instances en même temps.
+    await client.query('SELECT pg_advisory_xact_lock($1)', [8142101]);
+    for (let i = 1; i <= count; i += 1) {
+      const suffix = String(i).padStart(3, '0');
+      const email = `seed-user-${suffix}@koraboost.local`;
+      const telephone = `229900${String(i).padStart(4, '0')}`;
+      const existing = await client.query(
+        'SELECT id FROM users WHERE LOWER(email) = $1 OR telephone = $2 LIMIT 1',
+        [email, telephone]
+      );
+      if (existing.rowCount) continue;
+
+      const passwordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+      await client.query(
+        `INSERT INTO users
+          (nom, prenom, email, telephone, pays, password_hash, role, status)
+         VALUES ($1, $2, $3, $4, 'Bénin', $5, 'user', 'active')`,
+        ['Test', 'Utilisateur ' + suffix, email, telephone, passwordHash]
+      );
+      created += 1;
+    }
+    await client.query('COMMIT');
+    console.log(`[init] Utilisateurs de test : ${created} créé(s), ${count} demandé(s).`);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function init() {
   const client = await pool.connect();
   try {
     await client.query(SCHEMA);
     await seedAdmin();
+    await seedTestUsers();
     console.log('[init] Base de données prête.');
   } finally {
     client.release();
