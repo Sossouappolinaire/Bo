@@ -1,5 +1,5 @@
-// Configuration de l'assistant IA.
-// La clé reste dans les variables d'environnement du serveur (Render/.env local).
+// Valeurs d'environnement initiales pour l'assistant IA.
+// La configuration active est persistée en base via config/settings.js.
 module.exports = {
   groq: {
     apiKey: process.env.GROQ_API_KEY || process.env.GROQ_API || '',
