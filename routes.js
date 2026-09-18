@@ -136,13 +136,18 @@ function normalizeSebpayOperator(operator) {
   if (!operator || typeof operator !== 'object') return null;
   const slug = String(operator.slug || operator.code || operator.operator || '').trim().toLowerCase();
   if (!slug) return null;
+  const documentedSlug = String(operator.api_slug || operator.apiSlug || '').trim().toLowerCase();
+  // Certaines réponses live renvoient encore un identifiant localisé
+  // (`mobicash-ml`, `moov-bj`, etc.) sans fournir api_slug. SebPay attend
+  // alors le slug réseau générique (`mobicash`, `moov`, ...).
+  const apiSlug = documentedSlug || slug.replace(/-[a-z]{2}$/, '');
   return {
     ...operator,
     slug,
     country: operatorCountryCode(operator),
     // Les slugs d'affichage historiques (moov-bj, mtn-ci...) ne sont pas
     // ceux attendus par la documentation SebPay (moov, mtn, orange...).
-    api_slug: String(operator.api_slug || operator.apiSlug || slug).trim().toLowerCase()
+    api_slug: apiSlug
   };
 }
 
