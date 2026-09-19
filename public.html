@@ -407,7 +407,7 @@ async function vCampaigns() {
   const paymentFields = free
     ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette campagne est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
     : linkPayment
-      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Après validation, vous serez redirigé vers le lien de paiement. Revenez ensuite sur la page de succès pour confirmer votre retour à l’administrateur.</div>`
+      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Le paiement s’ouvre dans un nouvel onglet et cette page reste ouverte pour afficher le délai sécurisé de 3 minutes.</div>`
     : `<label>Pays</label>
        <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
        <label>Réseau Mobile Money</label>
@@ -435,10 +435,13 @@ async function vCampaigns() {
   </div>
   <div class="card">
     <h2>📢 Mes campagnes</h2>
-    ${mine.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Montant</th><th>Avancement</th><th>Statut</th></tr>
+    ${mine.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Montant</th><th>Avancement</th><th>Statut</th><th></th></tr>
       ${mine.map(c => `<tr>
         <td>${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${fcfa(c.amount)}</td>
         <td>${c.faits}/${c.interactions}</td><td>${campBadge(c)}</td>
+        <td>${c.status === 'pending_payment' && c.payment_status === 'pending'
+          ? `<a class="btn btn-b btn-sm" href="/success.html?campaign=${encodeURIComponent(c.id)}">Reprendre le paiement</a>`
+          : ''}</td>
       </tr>`).join('')}</table>`
     : '<p class="muted">Aucune campagne pour le moment.</p>'}
   </div>`;
@@ -629,6 +632,17 @@ async function bindCampaign(meta) {
     e.preventDefault();
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('button');
+    // Préparer la fenêtre pendant le clic utilisateur. Les navigateurs
+    // bloquent souvent window.open() lorsqu'il est appelé après un await.
+    // Le paiement reste ainsi dans un onglet séparé tandis que success.html
+    // s'ouvre toujours dans l'onglet KoraBoost.
+    let paymentWindow = null;
+    if (!free) {
+      paymentWindow = window.open('about:blank', '_blank');
+      if (paymentWindow) {
+        try { paymentWindow.opener = null; } catch (_) {}
+      }
+    }
     if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : linkPayment ? 'Redirection vers SebPay…' : 'Paiement en cours…'; }
     try {
       const r = await api('/campaigns', {
@@ -646,13 +660,31 @@ async function bindCampaign(meta) {
         alertMsg('✅ Campagne gratuite enregistrée.', 'info');
         window.location.href = r.successUrl;
       } else if (linkPayment) {
-        window.location.href = r.payUrl;
+        if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.location.replace(r.payUrl);
+          const successUrl = new URL(r.successUrl, window.location.origin);
+          successUrl.searchParams.set('payment_url', r.payUrl);
+          window.location.replace(successUrl.toString());
+        } else {
+          // Repli si le navigateur a bloqué la nouvelle fenêtre.
+          // success.html propose alors un bouton pour ouvrir SebPay.
+          const fallbackUrl = new URL(r.successUrl, window.location.origin);
+          fallbackUrl.searchParams.set('payment_url', r.payUrl);
+          window.location.replace(fallbackUrl.toString());
+        }
       } else {
-        if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        if (r.payUrl && paymentWindow && !paymentWindow.closed) {
+          paymentWindow.location.replace(r.payUrl);
+        } else if (r.payUrl) {
+          window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        } else if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.close();
+        }
         alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
         window.location.href = r.successUrl;
       }
     } catch (err) {
+      if (paymentWindow && !paymentWindow.closed) paymentWindow.close();
       if (err.paymentBusy) {
         if (err.sameUser && err.campaignId) {
           window.location.href = '/success.html?campaign=' + encodeURIComponent(err.campaignId);

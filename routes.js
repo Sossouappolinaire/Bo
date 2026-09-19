@@ -1004,6 +1004,7 @@ router.get('/campaigns/:id/payment-status', authRequired, h(async (req, res) => 
   await pool.query('DELETE FROM payment_locks WHERE expires_at <= now()');
   const r = await pool.query(
     `SELECT c.id, c.platform, c.link, c.amount, c.interactions, c.status, c.payment_status, c.payment_method,
+            c.created_at,
             c.link_confirmed_at, c.payment_reference, c.sebpay_transaction_id,
             pl.started_at AS lock_started_at, pl.expires_at AS lock_expires_at,
             (c.payment_reference LIKE 'KORABOOST-FREE-%') AS free

@@ -6,29 +6,34 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Administration — KoraBoost</title>
 <style>
-  :root{--bg:#07111f;--card:#10213a;--accent:#56e39f;--accent2:#7c8cff;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;}
+  :root{--bg:#07111f;--card:#10213a;--accent:#56e39f;--accent2:#7c8cff;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;--line:rgba(148,163,184,.18);--shadow:0 22px 70px rgba(0,0,0,.28)}
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
-  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.12),transparent 32rem),var(--bg);color:var(--txt);min-height:100vh}
-  .wrap{max-width:1100px;margin:0 auto;padding:16px}
-  header{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #334155;margin-bottom:20px;flex-wrap:wrap;gap:8px}
-  .logo{font-weight:800;font-size:1.2rem;letter-spacing:-.03em}.logo strong{color:var(--accent)}
-  .btn{padding:9px 16px;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:.88rem;text-decoration:none;color:#fff}
+  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.16),transparent 32rem),radial-gradient(circle at 100% 15%,rgba(124,140,255,.12),transparent 28rem),var(--bg);color:var(--txt);min-height:100vh}
+  .wrap{max-width:1240px;margin:0 auto;padding:28px 24px 56px}
+  header{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border:1px solid var(--line);border-radius:22px;background:rgba(10,27,49,.78);box-shadow:var(--shadow);margin-bottom:24px;flex-wrap:wrap;gap:14px}
+  .logo{font-weight:800;font-size:1.35rem;letter-spacing:-.04em}.logo strong{color:var(--accent)}.logo .muted{font-weight:600}
+  .btn{padding:12px 20px;min-height:46px;border:none;border-radius:12px;font-weight:800;cursor:pointer;font-size:.92rem;text-decoration:none;color:#fff;transition:transform .18s,box-shadow .18s,filter .18s}
+  .btn:hover{transform:translateY(-2px);filter:brightness(1.08);box-shadow:0 12px 28px rgba(0,0,0,.2)}
   .btn-p{background:var(--accent);color:#052e16}.btn-b{background:var(--accent2)}
   .btn-r{background:var(--red)}.btn-g{background:#334155}
-  .btn-sm{padding:5px 10px;font-size:.78rem}
+  .btn-sm{padding:9px 14px;min-height:38px;font-size:.8rem;border-radius:10px}
   #btn-logout{padding:13px 22px;font-size:.96rem;min-height:46px;transition:transform .2s,box-shadow .2s}
   #btn-logout:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(251,113,133,.25)}
-  .card{background:linear-gradient(145deg,rgba(16,33,58,.95),rgba(9,23,41,.92));border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 18px 55px rgba(0,0,0,.22)}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .card{background:linear-gradient(145deg,rgba(16,33,58,.96),rgba(9,23,41,.94));border:1px solid var(--line);border-radius:22px;padding:24px;margin-bottom:20px;box-shadow:var(--shadow)}
+  .card h2{letter-spacing:-.03em}.card h3{letter-spacing:-.02em}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
   @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
-  .stat{background:rgba(15,29,51,.78);border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:14px;text-align:center}
-  .stat b{display:block;font-size:1.5rem}
-  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-  .tab{padding:8px 16px;border-radius:10px;background:#334155;cursor:pointer;border:none;color:var(--txt);font-weight:700}
-  .tab.on{background:var(--accent2);color:#fff}
-  table{width:100%;border-collapse:collapse;font-size:.85rem}
-  th,td{padding:8px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;word-break:break-word}
-  input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:10px}
+  .stat{background:linear-gradient(145deg,rgba(22,45,76,.8),rgba(9,25,45,.8));border:1px solid var(--line);border-radius:16px;padding:18px 14px;text-align:center;transition:transform .18s,border-color .18s}
+  .stat:hover{transform:translateY(-3px);border-color:rgba(86,227,159,.45)}
+  .stat b{display:block;font-size:1.75rem;margin-bottom:4px}
+  .tabs{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .tab{padding:12px 18px;min-height:46px;border-radius:12px;background:rgba(51,65,85,.86);cursor:pointer;border:1px solid transparent;color:var(--txt);font-weight:800;transition:transform .18s,background .18s}
+  .tab:hover{transform:translateY(-2px);background:#46566f}.tab.on{background:var(--accent2);color:#fff;box-shadow:0 10px 24px rgba(124,140,255,.22)}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{padding:12px 10px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;word-break:break-word}
+  th{color:#c8d6e8;font-size:.76rem;text-transform:uppercase;letter-spacing:.06em}
+  tr:hover td{background:rgba(255,255,255,.025)}
+  input,select{width:100%;padding:12px 14px;min-height:46px;border-radius:12px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:12px}
   label{font-size:.83rem;color:var(--mut);display:block;margin-bottom:4px}
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700}
   .b-ok{background:#14532d;color:#4ade80}.b-w{background:#78350f;color:#fbbf24}
@@ -48,12 +53,15 @@
   .modal .inner{max-width:700px;margin:20px auto}
   .modal img{max-width:100%;border-radius:10px;margin:8px 0}
   .hidden{display:none!important}
+  .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  code{padding:3px 7px;border-radius:7px;background:rgba(86,227,159,.1);color:#a8f5cd}
+  @media(max-width:760px){.wrap{padding:16px 12px 40px}.card{padding:18px;border-radius:18px}.grid2{grid-template-columns:1fr}.tabs{gap:7px}.tab{flex:1 1 calc(50% - 7px);padding:11px 10px;font-size:.82rem}.card table{display:block;overflow-x:auto;white-space:nowrap}.card table tbody,.card table thead{width:100%}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">🛠️ Admin <span class="muted"><strong>KoraBoost</strong></span></div>
+    <div class="logo">🛠️ Admin <span class="muted">· <strong>KoraBoost</strong></span></div>
     <button id="btn-logout" class="btn btn-r hidden">Déconnecter</button>
   </header>
   <div id="alerts"></div>
@@ -195,7 +203,7 @@ async function vDash(tab) {
        </select>
        <label>Lien de paiement SebPay</label>
        <input id="setting-sebpay-link" type="url" value="${esc(settings.sebpayPaymentLink || '')}" placeholder="https://...">
-       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, le client est redirigé vers cette adresse. Après 3 minutes sur la page de succès, il confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, SebPay s’ouvre dans un nouvel onglet et la page de succès reste ouverte dans KoraBoost. Après 3 minutes, le client confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
        <div class="grid2">
          <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
            <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>

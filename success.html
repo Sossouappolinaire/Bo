@@ -20,10 +20,12 @@
     .label { margin:0 0 8px; font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
     a { color:var(--accent); word-break:break-all; }
     .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
-    button, .button { border:0; border-radius:12px; padding:13px 18px; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; background:var(--accent); color:#062318; }
+    button, .button { border:0; border-radius:12px; padding:15px 20px; min-height:48px; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; background:var(--accent); color:#062318; }
     button.secondary, .button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
     button:disabled { cursor:default; opacity:.55; }
     .small { font-size:.9rem; }
+    #payment-link { display:none; }
+    #payment-link.visible { display:inline-flex; align-items:center; }
   </style>
 </head>
 <body>
@@ -39,6 +41,7 @@
   </section>
   <div class="actions">
     <button id="confirm" type="button" disabled>Confirmer ce lien</button>
+    <a id="payment-link" class="button" target="_blank" rel="noopener noreferrer">Ouvrir SebPay</a>
     <a class="button secondary" href="/">Retour à KoraBoost</a>
   </div>
 </main>
@@ -52,9 +55,21 @@
   const linkBox = document.querySelector('#link-box');
   const linkEl = document.querySelector('#campaign-link');
   const confirmButton = document.querySelector('#confirm');
+  const paymentLinkButton = document.querySelector('#payment-link');
+  const paymentUrl = params.get('payment_url');
   let campaign;
   let timer;
   let countdownTimer;
+
+  if (paymentUrl) {
+    try {
+      const parsedPaymentUrl = new URL(paymentUrl, location.origin);
+      if (parsedPaymentUrl.protocol === 'http:' || parsedPaymentUrl.protocol === 'https:') {
+        paymentLinkButton.href = parsedPaymentUrl.toString();
+        paymentLinkButton.classList.add('visible');
+      }
+    } catch (_) {}
+  }
 
   function setStatus(message, kind) {
     statusEl.textContent = message;
@@ -80,9 +95,13 @@
     if (isLinkPayment && data.payment_status === 'pending') {
       // Le serveur est la source de vérité : le compteur ne peut pas être
       // remis à 180 secondes en rechargeant la page.
-      const remaining = data.lockExpiresAt
+      const lockRemaining = data.lockExpiresAt
         ? Math.max(0, Math.ceil((new Date(data.lockExpiresAt).getTime() - Date.now()) / 1000))
         : Number(data.lockRemainingSeconds || 0);
+      const ageRemaining = data.created_at
+        ? Math.max(0, 180 - Math.floor((Date.now() - new Date(data.created_at).getTime()) / 1000))
+        : 0;
+      const remaining = Math.max(lockRemaining, ageRemaining);
       confirmButton.disabled = remaining > 0;
       confirmButton.textContent = remaining > 0
         ? 'Attendre encore ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0')

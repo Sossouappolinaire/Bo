@@ -60,11 +60,16 @@ restent soumises à la validation administrateur avant d'être activées.
 Pour une campagne payante, l'onglet permet également de choisir entre **API
 SebPay** et **Lien SebPay**. En mode API, KoraBoost crée la collecte et reçoit
 son statut par webhook. En mode Lien, l'administrateur renseigne son lien de
-paiement SebPay ; le client est redirigé vers ce lien, puis revient sur
-`success.html`. La page impose trois minutes avant d'autoriser la confirmation
-du retour. Cette confirmation passe la campagne en attente de vérification :
-l'administrateur doit vérifier le paiement dans SebPay, cliquer sur
-**Confirmer paiement** dans la liste des campagnes, puis approuver la campagne.
+paiement SebPay ; le paiement s'ouvre dans un nouvel onglet et KoraBoost ouvre
+immédiatement `success.html` dans l'onglet principal. La page impose trois
+minutes avant d'autoriser la confirmation du retour. Cette confirmation passe
+la campagne en attente de vérification : l'administrateur doit vérifier le
+paiement dans SebPay, cliquer sur **Confirmer paiement** dans la liste des
+campagnes, puis approuver la campagne.
+Si l'utilisateur ferme la page de succès, la campagne reste récupérable avec
+**Reprendre le paiement** depuis la liste de ses campagnes. Le serveur conserve
+également le délai de 180 secondes : fermer ou recharger la page ne permet pas
+de le contourner.
 
 ## Activer l'assistant Groq
 
