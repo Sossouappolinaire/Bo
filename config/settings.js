@@ -2,6 +2,8 @@
 // Les variables d'environnement servent uniquement de valeurs initiales.
 const DEFAULT_SETTINGS = Object.freeze({
   billing_mode: process.env.BILLING_MODE === 'free' ? 'free' : 'paid',
+  payment_method: process.env.PAYMENT_METHOD === 'link' ? 'link' : 'api',
+  sebpay_payment_link: process.env.SEBPAY_PAYMENT_LINK || '',
   task_reward: process.env.TASK_REWARD || '2',
   price_per_interaction: process.env.PRICE_PER_INTERACTION || '3',
   min_campaign_amount: process.env.MIN_CAMPAIGN_AMOUNT || '100',
@@ -15,6 +17,7 @@ const positiveNumber = (value, fallback) => {
   return Number.isFinite(n) && n > 0 ? n : Number(fallback);
 };
 const billingMode = (value) => String(value || '').trim().toLowerCase() === 'free' ? 'free' : 'paid';
+const paymentMethod = (value) => String(value || '').trim().toLowerCase() === 'link' ? 'link' : 'api';
 
 async function loadSettings(pool) {
   const result = await pool.query('SELECT key, value FROM app_settings');
@@ -28,6 +31,8 @@ async function loadSettings(pool) {
     minCampaignAmount: positiveNumber(values.min_campaign_amount, DEFAULT_SETTINGS.min_campaign_amount),
     minWithdrawal: positiveNumber(values.min_withdrawal, DEFAULT_SETTINGS.min_withdrawal),
     billingMode: billingMode(values.billing_mode),
+    paymentMethod: paymentMethod(values.payment_method),
+    sebpayPaymentLink: String(values.sebpay_payment_link || '').trim(),
     groqApiKey: String(values.groq_api_key || ''),
     groqModel: String(values.groq_model || DEFAULT_SETTINGS.groq_model)
   };
