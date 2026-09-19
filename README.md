@@ -39,10 +39,12 @@ Ne mettez jamais `SEBPAY_SECRET_KEY` dans le navigateur.
 
 ## Administrateur
 
-Le compte administrateur est synchronisé au démarrage depuis `ADMIN_EMAIL` et
-`ADMIN_PASSWORD`. L'adresse prévue est `sossoukouam@gmail.com` ; renseignez le
-mot de passe directement dans les variables secrètes Render, jamais dans le
-code. La connexion admin accepte maintenant l'e-mail ou le téléphone.
+Le compte administrateur est intégré à l'application et synchronisé
+automatiquement au démarrage. La connexion se fait avec l'adresse prévue
+`sossoukouam@gmail.com` et le mot de passe défini pour ce compte. Aucune
+variable `ADMIN_EMAIL` ou `ADMIN_PASSWORD` n'est nécessaire dans Render. La
+connexion admin accepte également le téléphone facultatif configuré dans
+`ADMIN_TELEPHONE`.
 
 L'onglet **🩺 Configuration** permet de modifier le prix client d'une tâche
 (1 like + 5 commentaires), la récompense versée à l'utilisateur après

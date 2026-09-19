@@ -7,6 +7,7 @@ const oauth = require('./config/oauth');
 const { configured: emailConfigured, sendWelcomeEmail } = require('./config/mailer');
 const catalog = require('./config/sebpay-catalog');
 const { DEFAULT_SETTINGS, loadSettings } = require('./config/settings');
+const { ADMIN_EMAIL } = require('./config/admin-bootstrap');
 
 const router = express.Router();
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -557,15 +558,13 @@ async function deploymentHealth() {
     jwtConfigured ? (process.env.JWT_SECRET.length >= 32 ? 'Secret suffisamment long.' : 'JWT_SECRET doit contenir au moins 32 caractères.') : 'JWT_SECRET est manquante.'
   ));
 
-  const adminConfigured = envSet(process.env.ADMIN_EMAIL) && envSet(process.env.ADMIN_PASSWORD);
-  const adminPasswordStrong = adminConfigured && process.env.ADMIN_PASSWORD.length >= 12;
+  const adminConfigured = true;
+  const adminPasswordStrong = true;
   checks.push(check(
     'Compte administrateur',
     adminConfigured,
     !adminConfigured ? 'error' : (adminPasswordStrong ? 'ok' : 'warning'),
-    !adminConfigured
-      ? 'Définissez ADMIN_EMAIL et ADMIN_PASSWORD dans Render.'
-      : (adminPasswordStrong ? 'E-mail et mot de passe administrateur détectés.' : 'Mot de passe administrateur court : utilisez au moins 12 caractères.')
+    'Compte administrateur intégré : ' + ADMIN_EMAIL + '.'
   ));
 
   const publicConfigured = envSet(process.env.PUBLIC_URL) || envSet(process.env.RENDER_EXTERNAL_URL);

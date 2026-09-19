@@ -262,6 +262,11 @@ function vAuth(mode) {
 async function vDashboard() {
   const { user, stats } = await api('/auth/me');
   S.user = user;
+  if (user.role === 'admin') {
+    localStorage.setItem('tr_admin', S.token);
+    window.location.replace('/admin');
+    return '';
+  }
   const tasks = await api('/tasks');
   return `
   <div class="balance-box">
@@ -458,6 +463,12 @@ function bindAuth(mode) {
     const body = Object.fromEntries(fd.entries());
     try {
       const r = await api('/auth/' + (mode === 'inscription' ? 'register' : 'login'), { method: 'POST', body });
+      if (mode !== 'inscription' && r.user.role === 'admin') {
+        localStorage.setItem('tr_admin', r.token);
+        alertMsg('Compte administrateur reconnu. Ouverture du panneau administrateur…', 'ok');
+        window.location.href = '/admin';
+        return;
+      }
       saveSession(r.token, r.user);
       alertMsg('Bienvenue 👋 ' + r.user.prenom + ' !', 'ok');
       location.hash = '#/tableau';
