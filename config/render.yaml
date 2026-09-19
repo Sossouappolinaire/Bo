@@ -11,10 +11,6 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      - key: ADMIN_EMAIL
-        value: sossoukouam@gmail.com
-      - key: ADMIN_PASSWORD
-        sync: false
       - key: SEED_TEST_USERS
         value: "false"
       - key: GROQ_API_KEY

@@ -6,29 +6,34 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Administration — KoraBoost</title>
 <style>
-  :root{--bg:#07111f;--card:#10213a;--accent:#56e39f;--accent2:#7c8cff;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;}
+  :root{--bg:#07111f;--card:#10213a;--accent:#56e39f;--accent2:#7c8cff;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;--line:rgba(148,163,184,.18);--shadow:0 22px 70px rgba(0,0,0,.28)}
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
-  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.12),transparent 32rem),var(--bg);color:var(--txt);min-height:100vh}
-  .wrap{max-width:1100px;margin:0 auto;padding:16px}
-  header{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #334155;margin-bottom:20px;flex-wrap:wrap;gap:8px}
-  .logo{font-weight:800;font-size:1.2rem;letter-spacing:-.03em}.logo strong{color:var(--accent)}
-  .btn{padding:9px 16px;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:.88rem;text-decoration:none;color:#fff}
+  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.16),transparent 32rem),radial-gradient(circle at 100% 15%,rgba(124,140,255,.12),transparent 28rem),var(--bg);color:var(--txt);min-height:100vh}
+  .wrap{max-width:1240px;margin:0 auto;padding:28px 24px 56px}
+  header{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border:1px solid var(--line);border-radius:22px;background:rgba(10,27,49,.78);box-shadow:var(--shadow);margin-bottom:24px;flex-wrap:wrap;gap:14px}
+  .logo{font-weight:800;font-size:1.35rem;letter-spacing:-.04em}.logo strong{color:var(--accent)}.logo .muted{font-weight:600}
+  .btn{padding:12px 20px;min-height:46px;border:none;border-radius:12px;font-weight:800;cursor:pointer;font-size:.92rem;text-decoration:none;color:#fff;transition:transform .18s,box-shadow .18s,filter .18s}
+  .btn:hover{transform:translateY(-2px);filter:brightness(1.08);box-shadow:0 12px 28px rgba(0,0,0,.2)}
   .btn-p{background:var(--accent);color:#052e16}.btn-b{background:var(--accent2)}
   .btn-r{background:var(--red)}.btn-g{background:#334155}
-  .btn-sm{padding:5px 10px;font-size:.78rem}
+  .btn-sm{padding:9px 14px;min-height:38px;font-size:.8rem;border-radius:10px}
   #btn-logout{padding:13px 22px;font-size:.96rem;min-height:46px;transition:transform .2s,box-shadow .2s}
   #btn-logout:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(251,113,133,.25)}
-  .card{background:linear-gradient(145deg,rgba(16,33,58,.95),rgba(9,23,41,.92));border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 18px 55px rgba(0,0,0,.22)}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .card{background:linear-gradient(145deg,rgba(16,33,58,.96),rgba(9,23,41,.94));border:1px solid var(--line);border-radius:22px;padding:24px;margin-bottom:20px;box-shadow:var(--shadow)}
+  .card h2{letter-spacing:-.03em}.card h3{letter-spacing:-.02em}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
   @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
-  .stat{background:rgba(15,29,51,.78);border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:14px;text-align:center}
-  .stat b{display:block;font-size:1.5rem}
-  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-  .tab{padding:8px 16px;border-radius:10px;background:#334155;cursor:pointer;border:none;color:var(--txt);font-weight:700}
-  .tab.on{background:var(--accent2);color:#fff}
-  table{width:100%;border-collapse:collapse;font-size:.85rem}
-  th,td{padding:8px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;word-break:break-word}
-  input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:10px}
+  .stat{background:linear-gradient(145deg,rgba(22,45,76,.8),rgba(9,25,45,.8));border:1px solid var(--line);border-radius:16px;padding:18px 14px;text-align:center;transition:transform .18s,border-color .18s}
+  .stat:hover{transform:translateY(-3px);border-color:rgba(86,227,159,.45)}
+  .stat b{display:block;font-size:1.75rem;margin-bottom:4px}
+  .tabs{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .tab{padding:12px 18px;min-height:46px;border-radius:12px;background:rgba(51,65,85,.86);cursor:pointer;border:1px solid transparent;color:var(--txt);font-weight:800;transition:transform .18s,background .18s}
+  .tab:hover{transform:translateY(-2px);background:#46566f}.tab.on{background:var(--accent2);color:#fff;box-shadow:0 10px 24px rgba(124,140,255,.22)}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{padding:12px 10px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;word-break:break-word}
+  th{color:#c8d6e8;font-size:.76rem;text-transform:uppercase;letter-spacing:.06em}
+  tr:hover td{background:rgba(255,255,255,.025)}
+  input,select{width:100%;padding:12px 14px;min-height:46px;border-radius:12px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:12px}
   label{font-size:.83rem;color:var(--mut);display:block;margin-bottom:4px}
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700}
   .b-ok{background:#14532d;color:#4ade80}.b-w{background:#78350f;color:#fbbf24}
@@ -48,12 +53,15 @@
   .modal .inner{max-width:700px;margin:20px auto}
   .modal img{max-width:100%;border-radius:10px;margin:8px 0}
   .hidden{display:none!important}
+  .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  code{padding:3px 7px;border-radius:7px;background:rgba(86,227,159,.1);color:#a8f5cd}
+  @media(max-width:760px){.wrap{padding:16px 12px 40px}.card{padding:18px;border-radius:18px}.grid2{grid-template-columns:1fr}.tabs{gap:7px}.tab{flex:1 1 calc(50% - 7px);padding:11px 10px;font-size:.82rem}.card table{display:block;overflow-x:auto;white-space:nowrap}.card table tbody,.card table thead{width:100%}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">🛠️ Admin <span class="muted"><strong>KoraBoost</strong></span></div>
+    <div class="logo">🛠️ Admin <span class="muted">· <strong>KoraBoost</strong></span></div>
     <button id="btn-logout" class="btn btn-r hidden">Déconnecter</button>
   </header>
   <div id="alerts"></div>
@@ -100,7 +108,7 @@ async function vDash(tab) {
   tab = tab || 'stats';
   const st = await api('/admin/stats');
   const tabs = [
-    ['stats','📊 Statistiques'],['campagnes','📢 Campagnes'],['verifications','📸 Vérifications'],
+    ['stats','📊 Statistiques'],['campagnes','📢 Demandes de liens'],['verifications','📸 Vérifications'],
     ['retraits','💸 Retraits'],['users','👥 Utilisateurs'],['tx','💰 Transactions'],['system','🩺 Configuration']
   ];
   let body = '';
@@ -108,8 +116,8 @@ async function vDash(tab) {
     body = `<div class="stats">
       <div class="stat"><b>${st.utilisateurs}</b><span class="muted">Inscrits</span></div>
       <div class="stat"><b style="color:#4ade80">${st.actifs}</b><span class="muted">Actifs</span></div>
-      <div class="stat"><b style="color:#fbbf24">${st.campagnes_en_attente}</b><span class="muted">Campagnes à valider</span></div>
-      <div class="stat"><b>${st.campagnes_actives}</b><span class="muted">Campagnes actives</span></div>
+      <div class="stat"><b style="color:#fbbf24">${st.campagnes_en_attente}</b><span class="muted">Demandes à valider</span></div>
+      <div class="stat"><b>${st.campagnes_actives}</b><span class="muted">Demandes actives</span></div>
       <div class="stat"><b style="color:#fbbf24">${st.verifications}</b><span class="muted">Preuves à vérifier</span></div>
       <div class="stat"><b style="color:#fbbf24">${st.retraits_en_attente}</b><span class="muted">Retraits en attente</span></div>
       <div class="stat"><b>${fcfa(st.encaisse)}</b><span class="muted">Encaissé</span></div>
@@ -119,25 +127,25 @@ async function vDash(tab) {
   } else if (tab === 'campagnes') {
     const rows = await api('/admin/campaigns?status=pending_admin');
     const act = await api('/admin/campaigns?status=active');
-    body = `<h3 style="margin-bottom:10px">⏳ À valider (${rows.length})</h3>
-      ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Demandé</th><th>Payé</th><th></th></tr>
+    body = `<h3 style="margin-bottom:10px">⏳ Liens à valider (${rows.length})</h3>
+      ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Action</th><th>Tâche</th><th>Payé</th><th></th></tr>
       ${rows.map(c => `<tr><td>#${c.id}</td><td>${esc(c.prenom)} ${esc(c.nom)}<br><span class="muted">${esc(c.telephone)}</span></td>
         <td>${c.platform}</td><td><a href="${esc(c.link)}" target="_blank">lien</a></td>
-         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
+         <td>${c.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>1 tâche</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
          <td>${c.linkPayment && c.payment_status === 'claimed' ? `<button class="btn btn-b btn-sm" onclick="confirmLinkPayment(${c.id})">Confirmer paiement</button>` : ''}
              ${(!c.linkPayment || c.payment_status === 'paid' || c.free) ? '<button class="btn btn-p btn-sm" onclick="decideCamp(' + c.id + ',true)">Approuver</button>' : ''}
             <button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Refuser</button></td></tr>`).join('')}</table>`
-      : '<p class="muted">Aucune campagne en attente.</p>'}
-      <h3 style="margin:16px 0 10px">✅ Actives (${act.length})</h3>
-      ${act.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Fait</th><th></th></tr>
-      ${act.map(c => `<tr><td>#${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${c.faits}/${c.interactions}</td>
+      : '<p class="muted">Aucun lien en attente.</p>'}
+      <h3 style="margin:16px 0 10px">✅ Demandes actives (${act.length})</h3>
+      ${act.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Action</th><th>Tâche</th><th></th></tr>
+      ${act.map(c => `<tr><td>#${c.id}</td><td>${c.platform}</td><td>${c.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>${c.faits}/1</td>
         <td><button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Suspendre</button></td></tr>`).join('')}</table>` : ''}`;
   } else if (tab === 'verifications') {
     const rows = await api('/admin/submissions?status=pending');
     body = `<h3 style="margin-bottom:10px">📸 Preuves à vérifier (${rows.length})</h3>
-      ${rows.length ? `<table><tr><th>#</th><th>Utilisateur</th><th>Campagne</th><th>Plateforme</th><th>Captures</th><th></th></tr>
+      ${rows.length ? `<table><tr><th>#</th><th>Utilisateur</th><th>Demande</th><th>Plateforme</th><th>Preuve</th><th></th></tr>
       ${rows.map(s => `<tr><td>${s.id}</td><td>${esc(s.prenom)} ${esc(s.nom)}<br><span class="muted">${esc(s.telephone)}</span></td>
-        <td>#${s.campaign_id}</td><td>${s.platform}</td><td>${s.captures}</td>
+        <td>#${s.campaign_id}</td><td>${s.platform}</td><td>${s.proofs}</td>
         <td><button class="btn btn-b btn-sm" onclick="viewSub(${s.id})">Voir</button></td></tr>`).join('')}</table>`
       : '<p class="muted">Rien à vérifier.</p>'}`;
   } else if (tab === 'retraits') {
@@ -181,13 +189,13 @@ async function vDash(tab) {
     </div>
      <div class="card">
        <h2 style="margin-bottom:6px">⚙️ Réglages métier</h2>
-       <p class="muted" style="margin-bottom:14px">Ces valeurs s’appliquent immédiatement aux nouvelles campagnes et aux validations de preuves.</p>
-       <label>Mode de facturation des campagnes</label>
+       <p class="muted" style="margin-bottom:14px">La règle est fixe : chaque lien client crée une seule tâche. Ces valeurs s’appliquent aux nouvelles demandes et aux validations de preuves.</p>
+       <label>Mode de facturation des demandes</label>
        <select id="setting-billing-mode">
          <option value="paid" ${settings.billingMode === 'paid' ? 'selected' : ''}>Payant — le client paie et l'utilisateur reçoit sa récompense</option>
          <option value="free" ${settings.billingMode === 'free' ? 'selected' : ''}>Free — le client ne paie rien et personne ne reçoit de commission</option>
        </select>
-       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les campagnes sont enregistrées sans paiement SebPay.</p>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les demandes sont enregistrées sans paiement SebPay.</p>
        <label>Mode de paiement SebPay</label>
        <select id="setting-payment-method">
          <option value="api" ${settings.paymentMethod === 'api' ? 'selected' : ''}>API SebPay — paiement vérifié automatiquement par l’API</option>
@@ -195,15 +203,15 @@ async function vDash(tab) {
        </select>
        <label>Lien de paiement SebPay</label>
        <input id="setting-sebpay-link" type="url" value="${esc(settings.sebpayPaymentLink || '')}" placeholder="https://...">
-       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, le client est redirigé vers cette adresse. Après 3 minutes sur la page de succès, il confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, SebPay s’ouvre dans un nouvel onglet et la page de succès reste ouverte dans KoraBoost. Après 3 minutes, le client confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver le lien.</p>
        <div class="grid2">
-         <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
+         <div><label>Prix client par tâche (1 action + 1 preuve), en FCFA</label>
            <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>
          <div><label>Récompense utilisateur par tâche validée, en FCFA</label>
            <input id="setting-reward" type="number" min="0.01" step="0.01" value="${settings.taskReward}"></div>
        </div>
        <div class="grid2">
-         <div><label>Montant minimum d’une campagne, en FCFA</label>
+         <div><label>Montant minimum d’une demande, en FCFA</label>
            <input id="setting-min-campaign" type="number" min="0.01" step="0.01" value="${settings.minCampaignAmount}"></div>
          <div><label>Solde minimum pour un retrait, en FCFA</label>
            <input id="setting-min-withdrawal" type="number" min="0.01" step="0.01" value="${settings.minWithdrawal}"></div>
@@ -224,18 +232,18 @@ async function viewSub(id) {
   try {
     const [d, settings] = await Promise.all([api('/admin/submissions/' + id), api('/admin/settings')]);
     const s = d.submission, proofs = d.proofs;
-    const labels = { like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
+    const labels = { proof: '📸 Preuve unique de la tâche', like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = `<div class="inner card">
-      <h3>📸 Preuve #${s.id} — ${esc(s.prenom)} ${esc(s.nom)} — Campagne #${s.campaign_id} (${s.platform})</h3>
-      <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Like : ✅ · Commentaires : 5 · Captures : ${proofs.length}</p>
+      <h3>📸 Preuve #${s.id} — ${esc(s.prenom)} ${esc(s.nom)} — ${s.interaction_type === 'comment' ? 'Commentaire' : 'J’aime'} (${s.platform})</h3>
+      <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Preuve reçue : ${proofs.length === 1 ? '✅ 1 fichier' : '⚠️ ' + proofs.length + ' fichiers'}</p>
       ${proofs.map(p => `<h4 style="margin-top:10px">${labels[p.kind] || p.kind}</h4><img src="${p.image}">`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
          <button class="btn btn-p" onclick="reviewSub(${s.id},true)">✅ Valider (${settings.billingMode === 'free' ? 'aucune commission' : '+' + settings.taskReward + ' FCFA'})</button>
         <select id="rej-reason" style="width:auto;flex:1;min-width:200px">
-          <option>Capture insuffisante</option><option>Commentaire manquant</option>
-          <option>Preuve illisible</option><option>Tâche incorrectement réalisée</option>
+          <option>Preuve insuffisante</option><option>Preuve illisible</option>
+          <option>Tâche incorrectement réalisée</option>
         </select>
         <button class="btn btn-r" onclick="reviewSub(${s.id},false)">❌ Refuser</button>
         <button class="btn btn-g" onclick="this.closest('.modal').remove()">Fermer</button>
@@ -259,7 +267,7 @@ async function decideCamp(id, approve) {
   const note = approve ? null : prompt('Motif du refus / suspension :') || '';
   try {
     await api('/admin/campaigns/' + id + '/decision', { method: 'POST', body: { approve, note } });
-    msg(approve ? '✅ Campagne approuvée, tâches créées.' : '❌ Campagne refusée/suspendue.', 'ok');
+    msg(approve ? '✅ Lien approuvé : une seule tâche est maintenant disponible.' : '❌ Demande refusée/suspendue.', 'ok');
     render();
   } catch (e) { msg(e.message, 'err'); }
 }

@@ -1,7 +1,7 @@
 # KoraBoost
 
-Plateforme de tâches sociales et de campagnes Facebook/TikTok, avec récompenses,
-retraits SebPay et assistant IA Kora.
+Plateforme de tâches sociales Facebook/TikTok, avec récompenses, retraits SebPay
+et assistant IA Kora.
 
 ## Lancer le projet
 
@@ -14,9 +14,16 @@ Le serveur attend une base PostgreSQL dans `DATABASE_URL`. Copier `.env.example`
 dans la configuration d'environnement du serveur et renseigner les variables
 SebPay et JWT.
 
+## Règle des demandes de liens
+
+Le client envoie un lien Facebook ou TikTok et choisit **J’aime** ou
+**Commentaire**. Chaque lien crée exactement **une seule tâche**, enregistrée
+en attente de validation administrateur. Le client ne saisit plus de nombre
+d'interactions : le lien envoyé est l'unité de travail.
+
 ## Paiements SebPay
 
-Les campagnes utilisent la collecte SebPay (`POST /api/v1/collections`) avec
+Chaque demande payante utilise la collecte SebPay (`POST /api/v1/collections`) avec
 `SEBPAY_PUBLIC_KEY` et `SEBPAY_SECRET_KEY`. Le serveur transmet un
 `external_reference` unique, puis attend le webhook signé HMAC-SHA256 sur :
 
@@ -39,30 +46,37 @@ Ne mettez jamais `SEBPAY_SECRET_KEY` dans le navigateur.
 
 ## Administrateur
 
-Le compte administrateur est synchronisé au démarrage depuis `ADMIN_EMAIL` et
-`ADMIN_PASSWORD`. L'adresse prévue est `sossoukouam@gmail.com` ; renseignez le
-mot de passe directement dans les variables secrètes Render, jamais dans le
-code. La connexion admin accepte maintenant l'e-mail ou le téléphone.
+Le compte administrateur est intégré à l'application et synchronisé
+automatiquement au démarrage. La connexion se fait avec l'adresse prévue
+`sossoukouam@gmail.com` et le mot de passe défini pour ce compte. Aucune
+variable `ADMIN_EMAIL` ou `ADMIN_PASSWORD` n'est nécessaire dans Render. La
+connexion admin accepte également le téléphone facultatif configuré dans
+`ADMIN_TELEPHONE`.
 
 L'onglet **🩺 Configuration** permet de modifier le prix client d'une tâche
-(1 like + 5 commentaires), la récompense versée à l'utilisateur après
+(1 tâche = 1 action et 1 preuve), la récompense versée à l'utilisateur après
 validation, les seuils et la clé Groq. Les valeurs par défaut sont **3 FCFA**
 facturés par tâche et **2 FCFA** versés à l'utilisateur. La clé Groq reste
 stockée côté serveur et n'est jamais affichée en clair.
 
 Le même onglet permet de choisir le mode **Payant** ou **Free**. En mode Free,
 le client peut envoyer son lien sans paiement SebPay, aucun numéro Mobile Money
-n'est demandé et aucune commission n'est versée aux utilisateurs. Les campagnes
-restent soumises à la validation administrateur avant d'être activées.
+n'est demandé et aucune commission n'est versée aux utilisateurs. La tâche reste
+soumise à la validation administrateur avant d'être activée.
 
-Pour une campagne payante, l'onglet permet également de choisir entre **API
+Pour une demande payante, l'onglet permet également de choisir entre **API
 SebPay** et **Lien SebPay**. En mode API, KoraBoost crée la collecte et reçoit
 son statut par webhook. En mode Lien, l'administrateur renseigne son lien de
-paiement SebPay ; le client est redirigé vers ce lien, puis revient sur
-`success.html`. La page impose trois minutes avant d'autoriser la confirmation
-du retour. Cette confirmation passe la campagne en attente de vérification :
-l'administrateur doit vérifier le paiement dans SebPay, cliquer sur
-**Confirmer paiement** dans la liste des campagnes, puis approuver la campagne.
+paiement SebPay ; le paiement s'ouvre dans un nouvel onglet et KoraBoost ouvre
+immédiatement `success.html` dans l'onglet principal. La page impose trois
+minutes avant d'autoriser la confirmation du retour. Cette confirmation passe
+la demande en attente de vérification : l'administrateur doit vérifier le
+paiement dans SebPay, cliquer sur **Confirmer paiement** dans la liste des
+demandes, puis approuver le lien.
+Si l'utilisateur ferme la page de succès, la demande reste récupérable avec
+**Reprendre le paiement** depuis la liste de ses demandes. Le serveur conserve
+également le délai de 180 secondes : fermer ou recharger la page ne permet pas
+de le contourner.
 
 ## Activer l'assistant Groq
 
@@ -127,4 +141,4 @@ contient aucune de ces valeurs.
 
 Le site public utilise la marque **KoraBoost**, avec le slogan
 « Des interactions qui comptent ». Le bouton ✦ en bas à droite ouvre l'assistant
-Kora et les formulaires de captures affichent une progression de lecture/envoi.
+Kora et le formulaire d’une preuve unique affichent une progression de lecture/envoi.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Paiement confirmé — KoraBoost</title>
+  <title>Lien envoyé — KoraBoost</title>
   <style>
     :root { color-scheme: dark; --bg:#09111f; --panel:#111d31; --line:#263852; --text:#eff6ff; --muted:#a8b8d0; --accent:#6ee7b7; --warn:#f7c873; --danger:#ff8b8b; }
     * { box-sizing: border-box; }
@@ -20,10 +20,12 @@
     .label { margin:0 0 8px; font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
     a { color:var(--accent); word-break:break-all; }
     .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
-    button, .button { border:0; border-radius:12px; padding:13px 18px; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; background:var(--accent); color:#062318; }
+    button, .button { border:0; border-radius:12px; padding:15px 20px; min-height:48px; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; background:var(--accent); color:#062318; }
     button.secondary, .button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
     button:disabled { cursor:default; opacity:.55; }
     .small { font-size:.9rem; }
+    #payment-link { display:none; }
+    #payment-link.visible { display:inline-flex; align-items:center; }
   </style>
 </head>
 <body>
@@ -39,22 +41,35 @@
   </section>
   <div class="actions">
     <button id="confirm" type="button" disabled>Confirmer ce lien</button>
+    <a id="payment-link" class="button" target="_blank" rel="noopener noreferrer">Ouvrir SebPay</a>
     <a class="button secondary" href="/">Retour à KoraBoost</a>
   </div>
 </main>
 <script>
   const token = localStorage.getItem('tr_token');
   const params = new URLSearchParams(location.search);
-  const campaignId = params.get('campaign');
+  let campaignId = params.get('campaign') || localStorage.getItem('kb_last_campaign_id') || '';
   const statusEl = document.querySelector('#status');
   const titleEl = document.querySelector('#title');
   const descriptionEl = document.querySelector('#description');
   const linkBox = document.querySelector('#link-box');
   const linkEl = document.querySelector('#campaign-link');
   const confirmButton = document.querySelector('#confirm');
+  const paymentLinkButton = document.querySelector('#payment-link');
+  const paymentUrl = params.get('payment_url');
   let campaign;
   let timer;
   let countdownTimer;
+
+  if (paymentUrl) {
+    try {
+      const parsedPaymentUrl = new URL(paymentUrl, location.origin);
+      if (parsedPaymentUrl.protocol === 'http:' || parsedPaymentUrl.protocol === 'https:') {
+        paymentLinkButton.href = parsedPaymentUrl.toString();
+        paymentLinkButton.classList.add('visible');
+      }
+    } catch (_) {}
+  }
 
   function setStatus(message, kind) {
     statusEl.textContent = message;
@@ -80,9 +95,13 @@
     if (isLinkPayment && data.payment_status === 'pending') {
       // Le serveur est la source de vérité : le compteur ne peut pas être
       // remis à 180 secondes en rechargeant la page.
-      const remaining = data.lockExpiresAt
+      const lockRemaining = data.lockExpiresAt
         ? Math.max(0, Math.ceil((new Date(data.lockExpiresAt).getTime() - Date.now()) / 1000))
         : Number(data.lockRemainingSeconds || 0);
+      const ageRemaining = data.created_at
+        ? Math.max(0, 180 - Math.floor((Date.now() - new Date(data.created_at).getTime()) / 1000))
+        : 0;
+      const remaining = Math.max(lockRemaining, ageRemaining);
       confirmButton.disabled = remaining > 0;
       confirmButton.textContent = remaining > 0
         ? 'Attendre encore ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0')
@@ -98,7 +117,7 @@
       confirmButton.disabled = true;
       confirmButton.textContent = 'Confirmation envoyée';
       titleEl.textContent = 'Bravo, votre retour est enregistré !';
-      descriptionEl.textContent = 'L’administrateur doit vérifier le paiement dans SebPay avant d’approuver la campagne.';
+      descriptionEl.textContent = 'L’administrateur doit vérifier le paiement dans SebPay avant d’approuver le lien.';
       setStatus('Votre paiement est en attente de vérification par l’administrateur.', 'ok');
       if (countdownTimer) clearInterval(countdownTimer);
       return;
@@ -106,15 +125,15 @@
     confirmButton.disabled = data.payment_status !== 'paid' || data.linkConfirmed;
     confirmButton.textContent = data.linkConfirmed ? 'Lien confirmé' : 'Confirmer ce lien';
     if (data.payment_status === 'paid') {
-      titleEl.textContent = data.free ? 'Campagne gratuite enregistrée' : 'Bravo, votre paiement est confirmé !';
+      titleEl.textContent = data.free ? 'Demande enregistrée' : 'Bravo, votre paiement est confirmé !';
       descriptionEl.textContent = data.free
-        ? 'Votre campagne gratuite est enregistrée et sera vérifiée par l’administrateur.'
-        : 'Votre campagne est enregistrée. Vérifiez le lien Facebook ou TikTok avant son envoi à la validation.';
+        ? 'Votre lien est enregistré. Une seule tâche est en attente de validation par l’administrateur.'
+        : 'Votre lien est enregistré. L’administrateur vérifiera le paiement et validera une seule tâche pour ce lien.';
       setStatus(data.free ? 'Aucun paiement ni commission ne sera appliqué.' : (data.linkConfirmed ? 'Paiement confirmé et lien enregistré.' : 'Paiement confirmé par SebPay.'), 'ok');
       if (timer) clearInterval(timer);
     } else if (data.payment_status === 'rejected' || data.status === 'rejected') {
       titleEl.textContent = 'Paiement non confirmé';
-      descriptionEl.textContent = 'SebPay a refusé ou annulé cette transaction. Aucun traitement ne sera lancé pour cette campagne.';
+      descriptionEl.textContent = 'SebPay a refusé ou annulé cette transaction. Aucune tâche ne sera ouverte pour ce lien.';
       setStatus('Transaction refusée.', 'error');
       confirmButton.disabled = true;
       if (timer) clearInterval(timer);
@@ -137,7 +156,21 @@
       return;
     }
     if (!campaignId) {
-      setStatus('Référence de campagne absente.', 'error');
+      try {
+        // Certains navigateurs ou liens de retour retirent la query string.
+        // On récupère alors la dernière campagne encore en attente de paiement.
+        const campaigns = await api('/campaigns/mine');
+        const pending = campaigns.find((item) =>
+          item.status === 'pending_payment' && item.payment_status === 'pending'
+        );
+        if (pending) {
+          campaignId = String(pending.id);
+          localStorage.setItem('kb_last_campaign_id', campaignId);
+        }
+      } catch (_) {}
+    }
+    if (!campaignId) {
+      setStatus('Référence de demande absente. Retournez à la liste des demandes pour reprendre le paiement.', 'error');
       return;
     }
     try {

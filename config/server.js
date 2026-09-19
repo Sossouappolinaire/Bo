@@ -7,7 +7,7 @@ const { runtimeErrors } = require('./config/runtime');
 const app = express();
 app.disable('x-powered-by');
 
-// Securite de base + JSON (captures d'ecran en base64)
+// Securite de base + JSON (preuves image en base64)
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');

@@ -169,7 +169,7 @@ function renderNav() {
   const n = $('#nav');
   if (S.user) {
     n.innerHTML = '<a class="btn btn-g btn-sm" href="#/tableau">Tableau de bord</a>' +
-      '<a class="btn btn-g btn-sm" href="#/campagnes">Campagnes</a>' +
+      '<a class="btn btn-g btn-sm" href="#/campagnes">Mes demandes</a>' +
       '<a class="btn btn-g btn-sm" href="#/retrait">Retrait</a>' +
       '<button class="btn btn-r btn-logout" onclick="logout()">Déconnecter (' + esc(S.user.prenom) + ')</button>';
   } else {
@@ -196,15 +196,15 @@ function vHome() {
       <div class="eyebrow">Pour les créateurs actifs</div>
       <h2>👤 Gagnez avec vos actions</h2>
       <p class="muted">Réalisez les tâches disponibles, envoyez vos preuves et recevez <b>${S.rules.taskReward} FCFA</b> par tâche validée.</p>
-      <p style="line-height:1.9;margin:14px 0 20px">✓ Like + 5 commentaires<br>✓ Captures contrôlées<br>✓ Retrait dès <b>${fcfa(S.rules.minWithdrawal)}</b></p>
+      <p style="line-height:1.9;margin:14px 0 20px">✓ 1 tâche = 1 preuve organisée<br>✓ Preuve contrôlée par l’administrateur<br>✓ Retrait dès <b>${fcfa(S.rules.minWithdrawal)}</b></p>
       <a class="btn btn-p" href="#/inscription">Créer mon compte <span>→</span></a>
     </div>
     <div class="card home-panel" data-panel="promouvoir" role="button" tabindex="0" aria-label="Ouvrir le panneau Donnez de l’élan à vos publications">
       <div class="eyebrow" style="color:var(--cyan)">Pour les marques et clients</div>
       <h2>📢 Donnez de l'élan à vos publications</h2>
-      <p class="muted">Facebook ou TikTok : choisissez votre lien, votre volume d'interactions et suivez l'avancement de votre campagne.</p>
+      <p class="muted">Facebook ou TikTok : envoyez un lien et demandez une seule action à la fois, puis suivez sa validation.</p>
       <p style="line-height:1.9;margin:14px 0 20px">✓ Audience locale active<br>✓ Paiement sécurisé MoneyFusion<br>✓ Suivi simple et transparent</p>
-      <a class="btn btn-b" href="#/campagnes">Lancer une campagne <span>→</span></a>
+      <a class="btn btn-b" href="#/campagnes">Envoyer un lien <span>→</span></a>
     </div>
   </div>
   <button class="btn btn-g home-back" id="home-back" type="button">← Retour à l’accueil</button>`;
@@ -262,6 +262,11 @@ function vAuth(mode) {
 async function vDashboard() {
   const { user, stats } = await api('/auth/me');
   S.user = user;
+  if (user.role === 'admin') {
+    localStorage.setItem('tr_admin', S.token);
+    window.location.replace('/admin');
+    return '';
+  }
   const tasks = await api('/tasks');
   return `
   <div class="balance-box">
@@ -284,8 +289,8 @@ async function vDashboard() {
   ${tasks.length ? tasks.map(t => `
     <div class="card task">
       <span class="badge b-p">${t.platform === 'tiktok' ? '🎵 TikTok' : '📘 Facebook'}</span>
-      <span class="badge b-g" style="margin-left:6px">Campagne #${t.campaign_id}</span>
-      <p style="margin:10px 0">❤️ Like : 1 &nbsp;•&nbsp; 💬 Commentaires : 5 &nbsp;•&nbsp; 💰 Récompense : <b style="color:#4ade80">${fcfa(S.rules.taskReward)}</b></p>
+      <span class="badge b-g" style="margin-left:6px">${t.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</span>
+      <p style="margin:10px 0">📌 1 tâche pour ce lien &nbsp;•&nbsp; 📸 1 preuve obligatoire &nbsp;•&nbsp; 💰 Récompense : <b style="color:#4ade80">${fcfa(S.rules.taskReward)}</b></p>
       <a class="btn btn-b btn-sm" href="#/tache/${t.id}">Commencer la tâche</a>
     </div>`).join('') : '<div class="card muted">Aucune tâche disponible pour le moment. Revenez bientôt !</div>'}`;
 }
@@ -297,24 +302,18 @@ async function vTask(id) {
   return `
   <div class="card">
     <span class="badge b-p">${t.platform === 'tiktok' ? '🎵 TikTok' : '📘 Facebook'}</span>
-    <h2 style="margin-top:10px">Tâche #${t.id} — Campagne #${t.campaign_id}</h2>
+    <h2 style="margin-top:10px">Tâche #${t.id} — ${t.interaction_type === 'comment' ? 'Commentaire' : 'J’aime'}</h2>
     <p>💰 Récompense : <b style="color:#4ade80">${fcfa(S.rules.taskReward)}</b> après validation</p>
     <p style="word-break:break-all">🔗 Lien : <a href="${esc(t.link)}" target="_blank" rel="noopener">${esc(t.link)}</a></p>
     <hr style="border-color:#334155;margin:14px 0">
     <div class="step"><div class="step-n">1</div><div>Ouvrez le lien ${t.platform === 'tiktok' ? 'TikTok' : 'Facebook'} ci-dessus.</div></div>
-    <div class="step"><div class="step-n">2</div><div>Mettez <b>❤️ 1 LIKE</b> à la publication.</div></div>
-    <div class="step"><div class="step-n">3</div><div>Publiez <b>💬 5 COMMENTAIRES</b> différents.</div></div>
-    <div class="step"><div class="step-n">4</div><div>Prenez les 6 captures d'écran demandées ci-dessous.</div></div>
-    <div class="step"><div class="step-n">5</div><div>Revenez ici et téléchargez vos preuves.</div></div>
+    <div class="step"><div class="step-n">2</div><div>${t.interaction_type === 'comment' ? 'Laissez le commentaire demandé sur cette publication.' : 'Aimez cette publication.'}</div></div>
+    <div class="step"><div class="step-n">3</div><div>Prenez <b>une preuve claire</b> montrant que la tâche est terminée.</div></div>
+    <div class="step"><div class="step-n">4</div><div>Revenez ici et envoyez cette preuve unique.</div></div>
     <hr style="border-color:#334155;margin:14px 0">
     <form id="f-proofs" data-task="${t.id}">
-      ${proofForm('like', '📸 Capture du like')}
-      ${proofForm('comment1', '📸 Capture commentaire 1')}
-      ${proofForm('comment2', '📸 Capture commentaire 2')}
-      ${proofForm('comment3', '📸 Capture commentaire 3')}
-      ${proofForm('comment4', '📸 Capture commentaire 4')}
-      ${proofForm('comment5', '📸 Capture commentaire 5')}
-      <button type="submit" class="btn btn-p" style="width:100%">Envoyer les preuves</button>
+      ${proofForm('proof', '📸 Preuve unique de la tâche')}
+      <button type="submit" class="btn btn-p" style="width:100%">Envoyer la preuve</button>
     </form>
   </div>`;
 }
@@ -334,9 +333,9 @@ async function vHistory() {
   return `
   <div class="card">
     <h2>📜 Historique des tâches</h2>
-    ${rows.length ? `<table><tr><th>#</th><th>Campagne</th><th>Plateforme</th><th>Statut</th><th>Date</th></tr>
+    ${rows.length ? `<table><tr><th>#</th><th>Action</th><th>Plateforme</th><th>Statut</th><th>Date</th></tr>
       ${rows.map(r => `<tr>
-        <td>${r.task_id}</td><td>#${r.campaign_id}</td><td>${r.platform}</td>
+        <td>${r.task_id}</td><td>${r.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>${r.platform}</td>
         <td>${statusBadge(r.status, r.reason)}</td>
         <td>${new Date(r.created_at).toLocaleDateString('fr-FR')}</td>
       </tr>`).join('')}</table>`
@@ -396,13 +395,11 @@ async function vCampaigns() {
   const [mine, meta] = await Promise.all([api('/campaigns/mine'), api('/meta')]);
   const free = meta.billingMode === 'free';
   const linkPayment = !free && meta.paymentMethod === 'link';
-  const price = free ? 0 : Number(meta.pricePerInteraction);
-  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
-  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
+  const price = free ? 0 : Math.max(Number(meta.pricePerInteraction), Number(meta.minCampaignAmount || 0));
   const paymentFields = free
-    ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette campagne est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
+    ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette demande est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
     : linkPayment
-      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Après validation, vous serez redirigé vers le lien de paiement. Revenez ensuite sur la page de succès pour confirmer votre retour à l’administrateur.</div>`
+      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Le paiement s’ouvre dans un nouvel onglet et cette page reste ouverte pour afficher le délai sécurisé de 3 minutes.</div>`
     : `<label>Pays</label>
        <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
        <label>Réseau Mobile Money</label>
@@ -416,26 +413,32 @@ async function vCampaigns() {
        </div>`;
   return `
   <div class="card">
-    <h2>➕ Nouvelle campagne</h2>
-    <p class="muted">${free ? '🆓 Aucune somme ne sera facturée.' : `💰 Montant minimum d'une campagne : <b>${fcfa(minAmount)}</b>.`}</p>
+    <h2>➕ Envoyer un lien</h2>
+    <p class="muted">Chaque lien envoyé crée exactement <b>une seule tâche</b>, placée en attente de validation par l’administrateur.</p>
     <form id="f-campaign">
       <label>Plateforme (détectée automatiquement depuis le lien)</label>
       <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
+      <label>Action demandée</label>
+      <select name="interaction_type" required>
+        <option value="like">❤️ J’aime</option>
+        <option value="comment">💬 Commentaire</option>
+      </select>
       ${paymentFields}
-      <label>Nombre d'interactions souhaitées</label>
-      <input name="interactions" id="c-n" type="number" min="${minInteractions}" value="${minInteractions}" required>
-      <p>${free ? 'Prix : <b id="c-price">Gratuit</b>' : `Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span>`}</p>
-      <button class="btn btn-b" style="width:100%">${free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'}</button>
+      <p>${free ? 'Prix : <b>Gratuit</b>' : `Prix pour cette tâche : <b>${fcfa(price)}</b>`}</p>
+      <button class="btn btn-b" style="width:100%">${free ? 'Envoyer la demande' : 'Payer et envoyer le lien'}</button>
     </form>
   </div>
   <div class="card">
-    <h2>📢 Mes campagnes</h2>
-    ${mine.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Montant</th><th>Avancement</th><th>Statut</th></tr>
+    <h2>📋 Mes demandes de lien</h2>
+    ${mine.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Action</th><th>Montant</th><th>Tâches</th><th>Statut</th><th></th></tr>
       ${mine.map(c => `<tr>
-        <td>${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${fcfa(c.amount)}</td>
-        <td>${c.faits}/${c.interactions}</td><td>${campBadge(c)}</td>
+        <td>${c.id}</td><td>${c.platform}</td><td>${c.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>${fcfa(c.amount)}</td>
+        <td>${c.faits}/1</td><td>${campBadge(c)}</td>
+        <td>${c.status === 'pending_payment' && c.payment_status === 'pending'
+          ? `<a class="btn btn-b btn-sm" href="/success.html?campaign=${encodeURIComponent(c.id)}">Reprendre le paiement</a>`
+          : ''}</td>
       </tr>`).join('')}</table>`
-    : '<p class="muted">Aucune campagne pour le moment.</p>'}
+    : '<p class="muted">Aucune demande de lien pour le moment.</p>'}
   </div>`;
 }
 
@@ -458,6 +461,12 @@ function bindAuth(mode) {
     const body = Object.fromEntries(fd.entries());
     try {
       const r = await api('/auth/' + (mode === 'inscription' ? 'register' : 'login'), { method: 'POST', body });
+      if (mode !== 'inscription' && r.user.role === 'admin') {
+        localStorage.setItem('tr_admin', r.token);
+        alertMsg('Compte administrateur reconnu. Ouverture du panneau administrateur…', 'ok');
+        window.location.href = '/admin';
+        return;
+      }
       saveSession(r.token, r.user);
       alertMsg('Bienvenue 👋 ' + r.user.prenom + ' !', 'ok');
       location.hash = '#/tableau';
@@ -499,15 +508,15 @@ function bindTask() {
     e.preventDefault();
     const taskId = e.target.dataset.task;
     const proofs = [...document.querySelectorAll('#f-proofs input[type=file]')].map(i => ({ kind: i.dataset.kind, image: i.dataset.image }));
-    if (proofs.some(p => !p.image)) { alertMsg('Veuillez télécharger les 6 captures.', 'err'); return; }
+    if (proofs.length !== 1 || !proofs[0].image) { alertMsg('Veuillez télécharger une preuve pour cette tâche.', 'err'); return; }
     const submitButton = e.target.querySelector('button[type=submit]');
-    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Envoi des preuves…'; }
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Envoi de la preuve…'; }
     try {
       await api('/tasks/' + taskId + '/submit', { method: 'POST', body: { proofs } });
-      alertMsg('✅ Preuves envoyées ! Tâche en attente de validation.', 'ok');
+      alertMsg('✅ Preuve envoyée ! Tâche en attente de validation.', 'ok');
       location.hash = '#/historique';
     } catch (err) {
-      if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Envoyer les preuves'; }
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Envoyer la preuve'; }
       alertMsg(err.message, 'err');
     }
   };
@@ -558,12 +567,9 @@ function wdBadge(st) {
 async function bindCampaign(meta) {
   const free = meta.billingMode === 'free';
   const linkPayment = !free && meta.paymentMethod === 'link';
-  const price = free ? 0 : Number(meta.pricePerInteraction);
-  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
-  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
-  $('#c-n').min = String(minInteractions);
-  $('#c-n').oninput = (e) => { $('#c-price').textContent = free ? 'Gratuit' : fcfa((parseInt(e.target.value) || 0) * price); };
-
+  const rememberCampaign = (id) => {
+    if (id != null) localStorage.setItem('kb_last_campaign_id', String(id));
+  };
   const selCountry = $('#c-operator') ? $('#c-country') : null;
   const selOp = $('#c-operator');
   const phone = $('#c-phone');
@@ -618,30 +624,62 @@ async function bindCampaign(meta) {
     e.preventDefault();
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('button');
+    // Préparer la fenêtre pendant le clic utilisateur. Les navigateurs
+    // bloquent souvent window.open() lorsqu'il est appelé après un await.
+    // Le paiement reste ainsi dans un onglet séparé tandis que success.html
+    // s'ouvre toujours dans l'onglet KoraBoost.
+    let paymentWindow = null;
+    if (!free) {
+      paymentWindow = window.open('about:blank', '_blank');
+      if (paymentWindow) {
+        try { paymentWindow.opener = null; } catch (_) {}
+      }
+    }
     if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : linkPayment ? 'Redirection vers SebPay…' : 'Paiement en cours…'; }
     try {
       const r = await api('/campaigns', {
         method: 'POST',
         body: {
           link: fd.get('link'),
-          interactions: fd.get('interactions'),
+          interaction_type: fd.get('interaction_type'),
           country_code: fd.get('country_code'),
           operator: fd.get('operator'),
           phone: fd.get('phone'),
           otp_code: fd.get('otp_code') || ''
         }
       });
+      // Secours local si le navigateur ou le prestataire de paiement
+      // supprime la query string lors du retour vers success.html.
+      rememberCampaign(r.campaignId);
       if (free) {
-        alertMsg('✅ Campagne gratuite enregistrée.', 'info');
+        alertMsg('✅ Lien envoyé. Une seule tâche est en attente de validation admin.', 'info');
         window.location.href = r.successUrl;
       } else if (linkPayment) {
-        window.location.href = r.payUrl;
+        if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.location.replace(r.payUrl);
+          const successUrl = new URL(r.successUrl, window.location.origin);
+          successUrl.searchParams.set('payment_url', r.payUrl);
+          window.location.replace(successUrl.toString());
+        } else {
+          // Repli si le navigateur a bloqué la nouvelle fenêtre.
+          // success.html propose alors un bouton pour ouvrir SebPay.
+          const fallbackUrl = new URL(r.successUrl, window.location.origin);
+          fallbackUrl.searchParams.set('payment_url', r.payUrl);
+          window.location.replace(fallbackUrl.toString());
+        }
       } else {
-        if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        if (r.payUrl && paymentWindow && !paymentWindow.closed) {
+          paymentWindow.location.replace(r.payUrl);
+        } else if (r.payUrl) {
+          window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        } else if (paymentWindow && !paymentWindow.closed) {
+          paymentWindow.close();
+        }
         alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
         window.location.href = r.successUrl;
       }
     } catch (err) {
+      if (paymentWindow && !paymentWindow.closed) paymentWindow.close();
       if (err.paymentBusy) {
         if (err.sameUser && err.campaignId) {
           window.location.href = '/success.html?campaign=' + encodeURIComponent(err.campaignId);
@@ -668,7 +706,7 @@ async function bindCampaign(meta) {
         }
         alertMsg(err.message + ' Temps restant : ' + remaining + ' seconde(s).', 'info');
       } else {
-        if (btn) { btn.disabled = false; btn.textContent = free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'; }
+        if (btn) { btn.disabled = false; btn.textContent = free ? 'Envoyer la demande' : 'Payer et envoyer le lien'; }
         alertMsg(err.message, 'err');
       }
     }
@@ -686,7 +724,7 @@ async function loadTx() {
 
 // ===================== ASSISTANT KORA =====================
 const assistantState = {
-  messages: [{ role: 'assistant', content: 'Bonjour 👋 Je suis Kora, votre assistant KoraBoost. Je peux vous guider pour gagner de l’argent, lancer une campagne ou faire un retrait.' }]
+  messages: [{ role: 'assistant', content: 'Bonjour 👋 Je suis Kora, votre assistant KoraBoost. Je peux vous guider pour gagner de l’argent, envoyer un lien ou faire un retrait.' }]
 };
 
 function renderAssistantMessages() {
@@ -778,8 +816,8 @@ async function route() {
 (async () => {
   try { const meta = await api('/meta'); S.rules = { taskReward: meta.taskReward, minWithdrawal: meta.minWithdrawal }; } catch {}
   const params = new URLSearchParams(location.search);
-  if (params.get('paiement') === 'confirme') { alertMsg('✅ Paiement confirmé ! Votre campagne est envoyée à l\'administrateur.', 'ok'); history.replaceState(null, '', '/'); }
-  if (params.get('paiement') === 'en_attente') { alertMsg('⏳ Paiement en cours de confirmation. La campagne apparaîtra après validation.', 'info'); history.replaceState(null, '', '/'); }
+  if (params.get('paiement') === 'confirme') { alertMsg('✅ Paiement confirmé ! Votre lien est envoyé à l\'administrateur.', 'ok'); history.replaceState(null, '', '/'); }
+  if (params.get('paiement') === 'en_attente') { alertMsg('⏳ Paiement en cours de confirmation. La tâche apparaîtra après validation.', 'info'); history.replaceState(null, '', '/'); }
   if (params.get('paiement') === 'annule') { alertMsg('❌ Paiement annulé.', 'err'); history.replaceState(null, '', '/'); }
   if (params.get('oauth') === 'success') {
     try {

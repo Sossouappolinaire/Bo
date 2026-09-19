@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { ADMIN_EMAIL, ADMIN_PASSWORD_HASH } = require('./config/admin-bootstrap');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   user_id INT NOT NULL REFERENCES users(id),
   platform VARCHAR(20) NOT NULL,
   link TEXT NOT NULL,
+  interaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
   interactions INT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   payment_method VARCHAR(20) NOT NULL DEFAULT 'api',
@@ -52,6 +54,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_provider_link TEXT;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sebpay_transaction_id VARCHAR(120);
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS link_confirmed_at TIMESTAMPTZ;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS interaction_type VARCHAR(20) NOT NULL DEFAULT 'like';
 CREATE TABLE IF NOT EXISTS payment_locks (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   campaign_id INT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
@@ -128,19 +131,19 @@ CREATE TABLE IF NOT EXISTS app_settings (
 `;
 
 async function seedAdmin() {
-  const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const email = ADMIN_EMAIL;
   const tel = (process.env.ADMIN_TELEPHONE || '').trim() || null;
-  const pwd = process.env.ADMIN_PASSWORD || '';
-  if (!email || !pwd) {
-    console.error('[init] ADMIN_EMAIL ou ADMIN_PASSWORD manque : compte administrateur non synchronisé.');
-    return;
-  }
-  const r = await pool.query(
-    "SELECT id FROM users WHERE LOWER(email) = $1 OR ($2::text IS NOT NULL AND telephone = $2) OR role = 'admin' ORDER BY id LIMIT 1",
-    [email, tel]
+  // Le compte intégré est toujours synchronisé, même si Render ne contient
+  // aucune variable ADMIN_EMAIL ou ADMIN_PASSWORD.
+  const byEmail = await pool.query(
+    'SELECT id FROM users WHERE LOWER(email) = $1 ORDER BY id LIMIT 1',
+    [email]
   );
-  const password_hash = await bcrypt.hash(pwd, 10);
-  if (!r.rowCount) {
+  const byRole = byEmail.rowCount ? byEmail : await pool.query(
+    "SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1"
+  );
+  const password_hash = ADMIN_PASSWORD_HASH;
+  if (!byRole.rowCount) {
     await pool.query(
       "INSERT INTO users (nom, prenom, email, telephone, pays, password_hash, role) VALUES ('Sossou', 'Kouamé', $1, $2, 'Bénin', $3, 'admin')",
       [email, tel, password_hash]
@@ -149,7 +152,7 @@ async function seedAdmin() {
   } else {
     await pool.query(
       'UPDATE users SET email = $1, password_hash = $2, role = $3, status = $4 WHERE id = $5',
-      [email, password_hash, 'admin', 'active', r.rows[0].id]
+      [email, password_hash, 'admin', 'active', byRole.rows[0].id]
     );
   }
 }
