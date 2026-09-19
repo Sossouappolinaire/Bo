@@ -48,7 +48,7 @@
 <script>
   const token = localStorage.getItem('tr_token');
   const params = new URLSearchParams(location.search);
-  const campaignId = params.get('campaign');
+  let campaignId = params.get('campaign') || localStorage.getItem('kb_last_campaign_id') || '';
   const statusEl = document.querySelector('#status');
   const titleEl = document.querySelector('#title');
   const descriptionEl = document.querySelector('#description');
@@ -156,7 +156,21 @@
       return;
     }
     if (!campaignId) {
-      setStatus('Référence de campagne absente.', 'error');
+      try {
+        // Certains navigateurs ou liens de retour retirent la query string.
+        // On récupère alors la dernière campagne encore en attente de paiement.
+        const campaigns = await api('/campaigns/mine');
+        const pending = campaigns.find((item) =>
+          item.status === 'pending_payment' && item.payment_status === 'pending'
+        );
+        if (pending) {
+          campaignId = String(pending.id);
+          localStorage.setItem('kb_last_campaign_id', campaignId);
+        }
+      } catch (_) {}
+    }
+    if (!campaignId) {
+      setStatus('Référence de campagne absente. Retournez à la liste des campagnes pour reprendre le paiement.', 'error');
       return;
     }
     try {

@@ -572,6 +572,9 @@ function wdBadge(st) {
 async function bindCampaign(meta) {
   const free = meta.billingMode === 'free';
   const linkPayment = !free && meta.paymentMethod === 'link';
+  const rememberCampaign = (id) => {
+    if (id != null) localStorage.setItem('kb_last_campaign_id', String(id));
+  };
   const price = free ? 0 : Number(meta.pricePerInteraction);
   const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
   const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
@@ -656,6 +659,9 @@ async function bindCampaign(meta) {
           otp_code: fd.get('otp_code') || ''
         }
       });
+      // Secours local si le navigateur ou le prestataire de paiement
+      // supprime la query string lors du retour vers success.html.
+      rememberCampaign(r.campaignId);
       if (free) {
         alertMsg('✅ Campagne gratuite enregistrée.', 'info');
         window.location.href = r.successUrl;
