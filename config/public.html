@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>KoraBoost — Des interactions qui comptent</title>
+<style>
+  :root{--bg:#07111f;--card:rgba(15,29,51,.86);--card-solid:#10213a;--line:rgba(148,163,184,.18);--accent:#56e39f;--accent2:#7c8cff;--cyan:#48d6e8;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;--shadow:0 22px 70px rgba(0,0,0,.3)}
+  *{margin:0;padding:0;box-sizing:border-box;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+  html{scroll-behavior:smooth}
+  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.12),transparent 32rem),radial-gradient(circle at 90% 8%,rgba(124,140,255,.16),transparent 35rem),var(--bg);color:var(--txt);min-height:100vh}
+  body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.2;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,#000,transparent 80%)}
+  a{color:var(--cyan)}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 72px;position:relative}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 0 18px;border-bottom:1px solid var(--line);margin-bottom:28px;flex-wrap:wrap;gap:14px;position:sticky;top:0;z-index:20;background:rgba(7,17,31,.78);backdrop-filter:blur(18px)}
+  .logo{display:flex;align-items:center;gap:10px;font-size:1.22rem;font-weight:850;letter-spacing:-.03em;color:#fff;text-decoration:none}
+  .logo-mark{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--cyan));display:grid;place-items:center;color:#06251d;box-shadow:0 8px 24px rgba(86,227,159,.22);font-size:1.05rem}
+  .logo span{color:var(--accent)}
+  nav{display:flex;gap:10px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 17px;border:1px solid transparent;border-radius:12px;font-weight:750;cursor:pointer;font-size:.92rem;text-decoration:none;text-align:center;transition:transform .2s,box-shadow .2s,background .2s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-p{background:var(--accent);color:#06251d;box-shadow:0 10px 28px rgba(86,227,159,.16)}
+  .btn-p:hover{background:#8cf2bd;box-shadow:0 14px 35px rgba(86,227,159,.24)}
+  .btn-b{background:var(--accent2);color:#fff;box-shadow:0 10px 28px rgba(124,140,255,.2)}
+  .btn-b:hover{background:#9ba7ff}
+  .btn-g{background:rgba(255,255,255,.06);color:var(--txt);border-color:var(--line)}
+  .btn-g:hover{background:rgba(255,255,255,.1)}
+  .btn-r{background:var(--red);color:#fff}
+  .btn-sm{padding:6px 12px;font-size:.82rem}
+  .btn-logout{padding:12px 20px;font-size:.95rem;min-height:46px}
+  .card{background:linear-gradient(145deg,rgba(16,33,58,.9),rgba(9,23,41,.88));border:1px solid var(--line);border-radius:22px;padding:26px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr}}
+  h1{font-size:clamp(1.7rem,4vw,3.7rem);line-height:1.06;letter-spacing:-.055em;margin-bottom:16px}
+  h2{font-size:1.25rem;margin-bottom:12px;letter-spacing:-.02em}
+  .hero{text-align:left;padding:clamp(30px,7vw,76px) clamp(20px,6vw,70px);position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(25,62,87,.9),rgba(20,30,71,.8) 58%,rgba(14,39,61,.92))}
+  .hero:after{content:"";position:absolute;width:340px;height:340px;border-radius:50%;right:-80px;top:-120px;background:radial-gradient(circle,rgba(86,227,159,.28),transparent 68%);pointer-events:none}
+  .hero h1{max-width:720px;background:linear-gradient(100deg,#fff 18%,#9ff6ce 58%,#8fa1ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero-copy{max-width:650px;font-size:1.08rem;line-height:1.65}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+  .eyebrow{color:var(--accent);font-weight:800;letter-spacing:.13em;text-transform:uppercase;font-size:.72rem;margin-bottom:15px}
+  .hero-points{display:flex;gap:22px;flex-wrap:wrap;margin-top:25px;color:#c3d1e2;font-size:.86rem}
+  .hero-points span{display:flex;align-items:center;gap:7px}
+  .hero-points i{width:8px;height:8px;background:var(--accent);border-radius:50%;box-shadow:0 0 12px var(--accent)}
+  .muted{color:var(--mut)}
+  input,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:10px;font-size:.95rem;outline:none;transition:border .2s,box-shadow .2s}
+  input:focus,select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(72,214,232,.13)}
+  label{font-size:.85rem;color:var(--mut);display:block;margin-bottom:4px}
+  .balance-box{background:linear-gradient(135deg,#0e4e45,#092b3c 65%,#182257);border:1px solid rgba(86,227,159,.45);text-align:left;padding:28px;border-radius:22px;margin-bottom:18px;box-shadow:0 20px 55px rgba(0,0,0,.2)}
+  .balance-box .amount{font-size:clamp(2rem,5vw,3rem);font-weight:850;color:#9ff6ce;margin-top:5px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  @media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:rgba(15,29,51,.7);border:1px solid var(--line);border-radius:15px;padding:16px;text-align:center}
+  .stat b{display:block;font-size:1.4rem}
+  .task{border-left:4px solid var(--accent2);transition:transform .2s,border .2s}
+  .task:hover{transform:translateY(-3px);border-color:var(--accent)}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:700}
+  .b-p{background:rgba(124,140,255,.16);color:#b7c0ff}.b-ok{background:rgba(86,227,159,.15);color:#8cf2bd}.b-w{background:rgba(247,200,115,.15);color:#f7d895}.b-r{background:rgba(251,113,133,.15);color:#ffabb8}.b-g{background:rgba(255,255,255,.08);color:#cbd5e1}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{padding:11px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  .msg{padding:12px 16px;border-radius:10px;margin-bottom:14px;font-weight:600}
+  .m-ok{background:rgba(86,227,159,.13);color:#8cf2bd;border:1px solid rgba(86,227,159,.5)}
+  .m-err{background:rgba(251,113,133,.13);color:#ffabb8;border:1px solid rgba(251,113,133,.5)}
+  .m-info{background:rgba(124,140,255,.13);color:#b7c0ff;border:1px solid rgba(124,140,255,.5)}
+  .proof-slot{border:2px dashed #34516d;border-radius:15px;padding:15px;margin-bottom:12px;text-align:center;background:rgba(4,16,29,.3);transition:border .2s,background .2s}
+  .proof-slot:focus-within{border-color:var(--cyan);background:rgba(72,214,232,.05)}
+  .proof-slot img{max-width:100%;max-height:180px;border-radius:8px;margin-top:8px}
+  .hidden{display:none!important}
+  .step{display:flex;gap:12px;margin-bottom:14px}
+  .step-n{background:linear-gradient(135deg,var(--accent2),#4f65d6);color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .tab{padding:9px 16px;border-radius:10px;background:rgba(255,255,255,.07);color:var(--txt);cursor:pointer;border:1px solid var(--line);font-weight:700}
+  .tab.on{background:var(--accent2);color:#fff}
+  #route-loader{position:fixed;top:0;left:0;right:0;height:3px;background:transparent;z-index:100;opacity:0;transition:opacity .2s}
+  #route-loader span{display:block;width:35%;height:100%;background:linear-gradient(90deg,var(--accent),var(--cyan),var(--accent2));box-shadow:0 0 14px var(--cyan);animation:routeLoad 1.1s infinite ease-in-out}
+  #route-loader.loading{opacity:1}
+  @keyframes routeLoad{0%{transform:translateX(-120%)}100%{transform:translateX(330%)}}
+  .upload-meta{display:flex;justify-content:space-between;gap:10px;font-size:.75rem;color:var(--mut);margin-top:8px;text-align:left}
+  .progress{height:6px;border-radius:20px;background:#18314a;overflow:hidden;margin-top:7px;text-align:left}
+  .progress-fill{width:0;height:100%;border-radius:20px;background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .2s;box-shadow:0 0 12px rgba(72,214,232,.45)}
+  .assistant-launcher{position:fixed;right:24px;bottom:24px;z-index:30;width:58px;height:58px;border-radius:19px;border:0;background:linear-gradient(135deg,var(--accent2),var(--cyan));color:#fff;font-size:1.45rem;cursor:pointer;box-shadow:0 14px 35px rgba(72,214,232,.28);transition:transform .2s}
+  .assistant-launcher:hover{transform:translateY(-3px) scale(1.03)}
+  .assistant-panel{position:fixed;right:24px;bottom:94px;width:min(370px,calc(100vw - 32px));z-index:29;border:1px solid var(--line);border-radius:21px;overflow:hidden;background:#0c1a2c;box-shadow:0 24px 80px rgba(0,0,0,.45);display:none}
+  .assistant-panel.open{display:block;animation:assistantIn .2s ease-out}
+  @keyframes assistantIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .assistant-head{padding:15px 17px;background:linear-gradient(110deg,#1d3c58,#242b68);display:flex;align-items:center;justify-content:space-between}
+  .assistant-head small{display:block;color:#b5c7df;margin-top:3px}
+  .assistant-messages{height:270px;overflow:auto;padding:14px;background:rgba(4,13,25,.6)}
+  .assistant-msg{max-width:88%;padding:10px 12px;border-radius:14px;margin-bottom:9px;font-size:.84rem;line-height:1.45;white-space:pre-wrap}
+  .assistant-msg.bot{background:rgba(124,140,255,.15);border:1px solid rgba(124,140,255,.2)}
+  .assistant-msg.user{margin-left:auto;background:rgba(86,227,159,.15);border:1px solid rgba(86,227,159,.18)}
+  .assistant-quick{display:flex;gap:6px;overflow:auto;padding:10px 12px 0}
+  .assistant-quick button{white-space:nowrap;border:1px solid var(--line);background:rgba(255,255,255,.06);color:#d7e3f1;border-radius:20px;padding:6px 9px;font-size:.72rem;cursor:pointer}
+  .assistant-form{display:flex;gap:8px;padding:10px 12px 13px}
+  .assistant-form input{margin:0;min-width:0;padding:10px 11px}
+  .assistant-form button{width:42px;border:0;border-radius:11px;background:var(--accent);color:#052e16;font-size:1rem;cursor:pointer}
+  .social-login{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:16px}
+  .social-login .btn{font-size:.8rem;padding:10px 8px}
+  .home-panel{cursor:pointer;transition:opacity .26s ease,transform .26s ease,border-color .26s ease,box-shadow .26s ease}
+  .home-panel:hover{transform:translateY(-4px);border-color:rgba(86,227,159,.42)}
+  .home-panel:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+  .home-panels.is-focused .home-panel:not(.is-selected){display:none}
+  .home-panels.is-focused .home-panel.is-selected{grid-column:1/-1;animation:panelFocus .34s cubic-bezier(.2,.8,.2,1)}
+  .home-back{display:none;margin:0 0 18px}
+  .home-panels.is-focused + .home-back{display:inline-flex;animation:panelFocus .3s ease-out}
+  @keyframes panelFocus{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @media(prefers-reduced-motion:reduce){.home-panel,.home-panels.is-focused .home-panel.is-selected,.home-panels.is-focused + .home-back{animation:none;transition:none}}
+  .auth-divider{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:.75rem;margin:16px 0 12px}
+  .auth-divider:before,.auth-divider:after{content:"";height:1px;background:var(--line);flex:1}
+</style>
+</head>
+<body>
+<div id="route-loader"><span></span></div>
+<div class="wrap">
+  <header>
+    <a class="logo" href="#/" aria-label="KoraBoost accueil"><span class="logo-mark">✦</span><span style="color:#fff">Kora<span>Boost</span></span></a>
+    <nav id="nav"></nav>
+  </header>
+  <div id="alerts"></div>
+  <main id="app"></main>
+</div>
+<button class="assistant-launcher" id="assistant-launcher" aria-label="Ouvrir l'assistant">✦</button>
+<section class="assistant-panel" id="assistant-panel" aria-label="Assistant KoraBoost">
+  <div class="assistant-head"><div><b>Assistant Kora</b><small>Réponses rapides pour avancer</small></div><button class="btn btn-sm btn-g" id="assistant-close" type="button">×</button></div>
+  <div class="assistant-messages" id="assistant-messages"></div>
+  <div class="assistant-quick">
+    <button type="button" data-question="Je veux gagner de l'argent">Gagner de l'argent</button>
+    <button type="button" data-question="Je veux promouvoir ma publication">Promouvoir</button>
+    <button type="button" data-question="Comment faire un retrait ?">Faire un retrait</button>
+  </div>
+  <form class="assistant-form" id="assistant-form"><input id="assistant-input" placeholder="Écrivez votre question…" maxlength="500" autocomplete="off"><button aria-label="Envoyer">➤</button></form>
+</section>
+<script>
+// ===================== ETAT & API =====================
+const S = { token: localStorage.getItem('tr_token') || null, user: null, rules: { taskReward: 2, minWithdrawal: 300 } };
+const $ = (sel) => document.querySelector(sel);
+const fcfa = (n) => Number(n).toLocaleString('fr-FR') + ' FCFA';
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function alertMsg(txt, type) {
+  const d = document.createElement('div');
+  d.className = 'msg m-' + type;
+  d.textContent = txt;
+  $('#alerts').appendChild(d);
+  setTimeout(() => d.remove(), 6000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && S.token) { logout(false); throw new Error(data.error || 'Session expirée.'); }
+  if (!res.ok) {
+    const error = new Error(data.error || 'Erreur serveur.');
+    Object.assign(error, data, { status: res.status });
+    throw error;
+  }
+  return data;
+}
+
+function saveSession(token, user) { S.token = token; S.user = user; localStorage.setItem('tr_token', token); renderNav(); }
+function logout(go = true) { S.token = null; S.user = null; localStorage.removeItem('tr_token'); renderNav(); if (go) location.hash = '#/'; }
+
+function renderNav() {
+  const n = $('#nav');
+  if (S.user) {
+    n.innerHTML = '<a class="btn btn-g btn-sm" href="#/tableau">Tableau de bord</a>' +
+      '<a class="btn btn-g btn-sm" href="#/campagnes">Campagnes</a>' +
+      '<a class="btn btn-g btn-sm" href="#/retrait">Retrait</a>' +
+      '<button class="btn btn-r btn-logout" onclick="logout()">Déconnecter (' + esc(S.user.prenom) + ')</button>';
+  } else {
+    n.innerHTML = '<a class="btn btn-b btn-sm" href="#/connexion">Connexion</a>' +
+      '<a class="btn btn-p btn-sm" href="#/inscription">Inscription</a>';
+  }
+}
+
+// ===================== VUES =====================
+function vHome() {
+  return `
+  <div class="hero card">
+    <div class="eyebrow">La plateforme qui fait grandir vos idées</div>
+    <h1>Des interactions qui comptent vraiment.</h1>
+    <p class="muted hero-copy">Gagnez de l'argent avec des tâches sociales simples ou donnez de la visibilité à vos publications grâce à une communauté active et vérifiée.</p>
+    <div class="hero-actions">
+      <a class="btn btn-p" href="#/inscription">Commencer maintenant <span>→</span></a>
+      <a class="btn btn-g" href="#/campagnes">Je veux promouvoir</a>
+    </div>
+    <div class="hero-points"><span><i></i>Paiements suivis</span><span><i></i>Preuves vérifiées</span><span><i></i>Assistance disponible</span></div>
+  </div>
+  <div class="grid2 home-panels" id="home-panels">
+    <div class="card home-panel" data-panel="gagner" role="button" tabindex="0" aria-label="Ouvrir le panneau Gagnez avec vos actions">
+      <div class="eyebrow">Pour les créateurs actifs</div>
+      <h2>👤 Gagnez avec vos actions</h2>
+      <p class="muted">Réalisez les tâches disponibles, envoyez vos preuves et recevez <b>${S.rules.taskReward} FCFA</b> par tâche validée.</p>
+      <p style="line-height:1.9;margin:14px 0 20px">✓ Like + 5 commentaires<br>✓ Captures contrôlées<br>✓ Retrait dès <b>${fcfa(S.rules.minWithdrawal)}</b></p>
+      <a class="btn btn-p" href="#/inscription">Créer mon compte <span>→</span></a>
+    </div>
+    <div class="card home-panel" data-panel="promouvoir" role="button" tabindex="0" aria-label="Ouvrir le panneau Donnez de l’élan à vos publications">
+      <div class="eyebrow" style="color:var(--cyan)">Pour les marques et clients</div>
+      <h2>📢 Donnez de l'élan à vos publications</h2>
+      <p class="muted">Facebook ou TikTok : choisissez votre lien, votre volume d'interactions et suivez l'avancement de votre campagne.</p>
+      <p style="line-height:1.9;margin:14px 0 20px">✓ Audience locale active<br>✓ Paiement sécurisé MoneyFusion<br>✓ Suivi simple et transparent</p>
+      <a class="btn btn-b" href="#/campagnes">Lancer une campagne <span>→</span></a>
+    </div>
+  </div>
+  <button class="btn btn-g home-back" id="home-back" type="button">← Retour à l’accueil</button>`;
+}
+
+function bindHomePanels() {
+  const panels = $('#home-panels');
+  const back = $('#home-back');
+  if (!panels || !back) return;
+  const openPanel = (panel) => {
+    panels.classList.add('is-focused');
+    panels.querySelectorAll('.home-panel').forEach(item => item.classList.toggle('is-selected', item === panel));
+    back.focus();
+  };
+  panels.querySelectorAll('.home-panel').forEach(panel => {
+    panel.addEventListener('click', event => { if (!event.target.closest('a')) openPanel(panel); });
+    panel.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPanel(panel); }
+    });
+  });
+  back.onclick = () => {
+    panels.classList.remove('is-focused');
+    panels.querySelectorAll('.home-panel').forEach(panel => panel.classList.remove('is-selected'));
+    panels.querySelector('.home-panel')?.focus();
+  };
+}
+
+function vAuth(mode) {
+  const isReg = mode === 'inscription';
+  return `
+  <div class="card" style="max-width:460px;margin:0 auto">
+    <h2>${isReg ? 'Créer mon compte' : 'Connexion'}</h2>
+    <div class="social-login">
+      <a class="btn btn-g" href="/api/auth/google">🌐 Google</a>
+      <a class="btn btn-g" href="/api/auth/facebook">ⓕ Facebook</a>
+    </div>
+    <div class="auth-divider">ou avec vos identifiants</div>
+    <form id="f-auth">
+      ${isReg ? `
+      <label>Nom</label><input name="nom" required>
+      <label>Prénom</label><input name="prenom" required>
+      <label>Pays</label><input name="pays" required placeholder="Ex : Bénin">
+      <label>E-mail <span class="muted">(recommandé)</span></label><input name="email" type="email" placeholder="vous@exemple.com">
+      ` : ''}
+      <label>${isReg ? 'Téléphone (pour les retraits)' : 'E-mail ou numéro de téléphone'}</label><input name="${isReg ? 'telephone' : 'identifier'}" ${isReg ? '' : 'required'} placeholder="${isReg ? '+229 XX XX XX XX' : 'vous@exemple.com'}">
+      <label>Mot de passe</label><input name="password" type="password" required>
+      ${isReg ? `<label>Confirmation du mot de passe</label><input name="confirmation" type="password" required>` : ''}
+      <button class="btn ${isReg ? 'btn-p' : 'btn-b'}" style="width:100%">${isReg ? "S'inscrire" : 'Se connecter'}</button>
+    </form>
+    ${isReg ? '<p class="muted" style="font-size:.78rem;margin-top:10px">Avec Google ou Facebook, votre nom et votre e-mail sont récupérés automatiquement. Aucun mot de passe social n’est affiché ni conservé en clair.</p>' : ''}
+    <p class="muted" style="margin-top:12px">${isReg ? 'Déjà inscrit ? <a href="#/connexion">Connectez-vous</a>' : 'Pas de compte ? <a href="#/inscription">Inscrivez-vous</a>'}</p>
+  </div>`;
+}
+
+async function vDashboard() {
+  const { user, stats } = await api('/auth/me');
+  S.user = user;
+  const tasks = await api('/tasks');
+  return `
+  <div class="balance-box">
+    <div class="muted">MON SOLDE</div>
+    <div class="amount">${fcfa(user.balance)}</div>
+    ${user.reserved > 0 ? `<div class="muted" style="font-size:.8rem">${fcfa(user.reserved)} réservés (retrait en cours)</div>` : ''}
+  </div>
+  <div class="stats">
+    <div class="stat"><b>${stats.disponibles}</b><span class="muted">📋 Disponibles</span></div>
+    <div class="stat"><b style="color:#4ade80">${stats.validees}</b><span class="muted">✅ Validées</span></div>
+    <div class="stat"><b style="color:#fbbf24">${stats.en_attente}</b><span class="muted">⏳ En attente</span></div>
+    <div class="stat"><b style="color:#fca5a5">${stats.refusees}</b><span class="muted">❌ Refusées</span></div>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+    <a class="btn btn-p" href="#/taches">Voir les tâches (${tasks.length})</a>
+    <a class="btn btn-g" href="#/historique">Historique</a>
+    <a class="btn btn-b" href="#/retrait">Retirer mon argent</a>
+  </div>
+  <h2>🎯 Tâches disponibles</h2>
+  ${tasks.length ? tasks.map(t => `
+    <div class="card task">
+      <span class="badge b-p">${t.platform === 'tiktok' ? '🎵 TikTok' : '📘 Facebook'}</span>
+      <span class="badge b-g" style="margin-left:6px">Campagne #${t.campaign_id}</span>
+      <p style="margin:10px 0">❤️ Like : 1 &nbsp;•&nbsp; 💬 Commentaires : 5 &nbsp;•&nbsp; 💰 Récompense : <b style="color:#4ade80">${fcfa(S.rules.taskReward)}</b></p>
+      <a class="btn btn-b btn-sm" href="#/tache/${t.id}">Commencer la tâche</a>
+    </div>`).join('') : '<div class="card muted">Aucune tâche disponible pour le moment. Revenez bientôt !</div>'}`;
+}
+
+async function vTask(id) {
+  const tasks = await api('/tasks');
+  const t = tasks.find(x => x.id === Number(id));
+  if (!t) return `<div class="card">Cette tâche n'est plus disponible. <a href="#/tableau">Retour</a></div>`;
+  return `
+  <div class="card">
+    <span class="badge b-p">${t.platform === 'tiktok' ? '🎵 TikTok' : '📘 Facebook'}</span>
+    <h2 style="margin-top:10px">Tâche #${t.id} — Campagne #${t.campaign_id}</h2>
+    <p>💰 Récompense : <b style="color:#4ade80">${fcfa(S.rules.taskReward)}</b> après validation</p>
+    <p style="word-break:break-all">🔗 Lien : <a href="${esc(t.link)}" target="_blank" rel="noopener">${esc(t.link)}</a></p>
+    <hr style="border-color:#334155;margin:14px 0">
+    <div class="step"><div class="step-n">1</div><div>Ouvrez le lien ${t.platform === 'tiktok' ? 'TikTok' : 'Facebook'} ci-dessus.</div></div>
+    <div class="step"><div class="step-n">2</div><div>Mettez <b>❤️ 1 LIKE</b> à la publication.</div></div>
+    <div class="step"><div class="step-n">3</div><div>Publiez <b>💬 5 COMMENTAIRES</b> différents.</div></div>
+    <div class="step"><div class="step-n">4</div><div>Prenez les 6 captures d'écran demandées ci-dessous.</div></div>
+    <div class="step"><div class="step-n">5</div><div>Revenez ici et téléchargez vos preuves.</div></div>
+    <hr style="border-color:#334155;margin:14px 0">
+    <form id="f-proofs" data-task="${t.id}">
+      ${proofForm('like', '📸 Capture du like')}
+      ${proofForm('comment1', '📸 Capture commentaire 1')}
+      ${proofForm('comment2', '📸 Capture commentaire 2')}
+      ${proofForm('comment3', '📸 Capture commentaire 3')}
+      ${proofForm('comment4', '📸 Capture commentaire 4')}
+      ${proofForm('comment5', '📸 Capture commentaire 5')}
+      <button type="submit" class="btn btn-p" style="width:100%">Envoyer les preuves</button>
+    </form>
+  </div>`;
+}
+
+function proofForm(kind, label) {
+  return `<div class="proof-slot">
+    <label style="display:block;margin-bottom:8px">${label}</label>
+    <input type="file" accept="image/*" data-kind="${kind}">
+    <div class="preview hidden"></div>
+    <div class="upload-meta"><span class="upload-name">Aucun fichier sélectionné</span><span class="upload-percent">0%</span></div>
+    <div class="progress"><div class="progress-fill"></div></div>
+  </div>`;
+}
+
+async function vHistory() {
+  const rows = await api('/tasks/history');
+  return `
+  <div class="card">
+    <h2>📜 Historique des tâches</h2>
+    ${rows.length ? `<table><tr><th>#</th><th>Campagne</th><th>Plateforme</th><th>Statut</th><th>Date</th></tr>
+      ${rows.map(r => `<tr>
+        <td>${r.task_id}</td><td>#${r.campaign_id}</td><td>${r.platform}</td>
+        <td>${statusBadge(r.status, r.reason)}</td>
+        <td>${new Date(r.created_at).toLocaleDateString('fr-FR')}</td>
+      </tr>`).join('')}</table>`
+    : '<p class="muted">Aucune tâche réalisée pour le moment.</p>'}
+  </div>
+  <div class="card">
+    <h2>💳 Historique financier</h2>
+    <div id="tx-list" class="muted">Chargement…</div>
+  </div>`;
+}
+
+function statusBadge(st, reason) {
+  if (st === 'approved') return '<span class="badge b-ok">✅ Validée</span>';
+  if (st === 'pending') return '<span class="badge b-w">⏳ En attente</span>';
+  return '<span class="badge b-r">❌ Refusée' + (reason ? ' — ' + esc(reason) : '') + '</span>';
+}
+
+async function vWithdraw() {
+  const { user } = await api('/auth/me');
+  if (user.balance < S.rules.minWithdrawal) {
+    return `<div class="card" style="text-align:center">
+      <h2>💸 Retrait</h2>
+      <p class="msg m-err">❌ Retrait impossible. Vous devez avoir au moins ${fcfa(S.rules.minWithdrawal)} dans votre solde.</p>
+      <p>Solde actuel : <b>${fcfa(user.balance)}</b></p>
+      <p class="muted">Il vous manque ${fcfa(S.rules.minWithdrawal - user.balance)}.</p>
+      <a class="btn btn-g" href="#/tableau">Retour au tableau de bord</a>
+    </div>`;
+  }
+  const methods = await api('/withdraw/methods');
+  const countries = (methods.data || []);
+  return `
+  <div class="card" style="max-width:480px;margin:0 auto">
+    <h2>💸 Demande de retrait</h2>
+    <p class="muted">Solde disponible : <b style="color:#4ade80">${fcfa(user.balance)}</b></p>
+    <form id="f-withdraw">
+      <label>Pays</label>
+      <select name="country" id="w-country">
+        ${countries.map((c, i) => `<option value="${i}">${esc(c.country)} (${esc(c.currency || 'XOF')})</option>`).join('')}
+      </select>
+      <label>Méthode de paiement</label>
+      <select name="withdraw_mode" id="w-mode"></select>
+      <label>Montant (minimum ${fcfa(S.rules.minWithdrawal)})</label>
+      <input name="amount" type="number" min="${S.rules.minWithdrawal}" max="${user.balance}" value="${S.rules.minWithdrawal}" required>
+      <label>Numéro de paiement</label>
+      <input name="phone" id="w-phone" required inputmode="tel" placeholder="Numéro Mobile Money">
+    <p class="muted" style="font-size:.8rem">Les éventuels frais sont calculés et traités par SebPay, pas par cette plateforme.</p>
+      <button class="btn btn-p" style="width:100%">Demander le retrait</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Mes retraits</h2>
+    <div id="wd-list" class="muted">Chargement…</div>
+  </div>`;
+}
+
+async function vCampaigns() {
+  const [mine, meta] = await Promise.all([api('/campaigns/mine'), api('/meta')]);
+  const free = meta.billingMode === 'free';
+  const linkPayment = !free && meta.paymentMethod === 'link';
+  const price = free ? 0 : Number(meta.pricePerInteraction);
+  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
+  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
+  const paymentFields = free
+    ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette campagne est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
+    : linkPayment
+      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Après validation, vous serez redirigé vers le lien de paiement. Revenez ensuite sur la page de succès pour confirmer votre retour à l’administrateur.</div>`
+    : `<label>Pays</label>
+       <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
+       <label>Réseau Mobile Money</label>
+       <select name="operator" id="c-operator" required><option value="">Choisissez d'abord un pays</option></select>
+       <label>Numéro Mobile Money à débiter</label>
+       <input name="phone" id="c-phone" required inputmode="tel" placeholder="Numéro du compte à débiter">
+       <div id="c-otp-box" style="display:none">
+         <label>Code OTP</label>
+         <p class="muted" style="font-size:.8rem" id="c-otp-hint"></p>
+         <input name="otp_code" id="c-otp" placeholder="Code reçu par USSD" autocomplete="one-time-code">
+       </div>`;
+  return `
+  <div class="card">
+    <h2>➕ Nouvelle campagne</h2>
+    <p class="muted">${free ? '🆓 Aucune somme ne sera facturée.' : `💰 Montant minimum d'une campagne : <b>${fcfa(minAmount)}</b>.`}</p>
+    <form id="f-campaign">
+      <label>Plateforme (détectée automatiquement depuis le lien)</label>
+      <input name="link" required placeholder="https://facebook.com/... ou https://tiktok.com/...">
+      ${paymentFields}
+      <label>Nombre d'interactions souhaitées</label>
+      <input name="interactions" id="c-n" type="number" min="${minInteractions}" value="${minInteractions}" required>
+      <p>${free ? 'Prix : <b id="c-price">Gratuit</b>' : `Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span>`}</p>
+      <button class="btn btn-b" style="width:100%">${free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'}</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>📢 Mes campagnes</h2>
+    ${mine.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Montant</th><th>Avancement</th><th>Statut</th></tr>
+      ${mine.map(c => `<tr>
+        <td>${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${fcfa(c.amount)}</td>
+        <td>${c.faits}/${c.interactions}</td><td>${campBadge(c)}</td>
+      </tr>`).join('')}</table>`
+    : '<p class="muted">Aucune campagne pour le moment.</p>'}
+  </div>`;
+}
+
+function campBadge(c) {
+  const map = {
+    pending_payment: '<span class="badge b-w">⏳ Paiement en attente</span>',
+    pending_admin: '<span class="badge b-w">⏳ Validation admin</span>',
+    active: '<span class="badge b-ok">✅ Active</span>',
+    completed: '<span class="badge b-ok">🏁 Terminée</span>',
+    rejected: '<span class="badge b-r">❌ Refusée</span>'
+  };
+  return map[c.status] || c.status;
+}
+
+// ===================== FORMULAIRES =====================
+function bindAuth(mode) {
+  $('#f-auth').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    try {
+      const r = await api('/auth/' + (mode === 'inscription' ? 'register' : 'login'), { method: 'POST', body });
+      saveSession(r.token, r.user);
+      alertMsg('Bienvenue 👋 ' + r.user.prenom + ' !', 'ok');
+      location.hash = '#/tableau';
+    } catch (err) { alertMsg(err.message, 'err'); }
+  };
+}
+
+function bindTask() {
+  document.querySelectorAll('#f-proofs input[type=file]').forEach(inp => {
+    inp.onchange = () => {
+      const file = inp.files[0];
+      if (!file) return;
+      const slot = inp.parentElement;
+      const fill = slot.querySelector('.progress-fill');
+      const percent = slot.querySelector('.upload-percent');
+      const fileName = slot.querySelector('.upload-name');
+      fileName.textContent = file.name;
+      fill.style.width = '0%';
+      percent.textContent = '0%';
+      const reader = new FileReader();
+      reader.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const value = Math.round((event.loaded / event.total) * 100);
+        fill.style.width = value + '%';
+        percent.textContent = value + '%';
+      };
+      reader.onload = () => {
+        inp.dataset.image = reader.result;
+        const prev = inp.parentElement.querySelector('.preview');
+        prev.innerHTML = '<img src="' + reader.result + '">';
+        prev.classList.remove('hidden');
+        fill.style.width = '100%';
+        percent.textContent = 'Prêt à envoyer';
+      };
+      reader.readAsDataURL(file);
+    };
+  });
+  $('#f-proofs').onsubmit = async (e) => {
+    e.preventDefault();
+    const taskId = e.target.dataset.task;
+    const proofs = [...document.querySelectorAll('#f-proofs input[type=file]')].map(i => ({ kind: i.dataset.kind, image: i.dataset.image }));
+    if (proofs.some(p => !p.image)) { alertMsg('Veuillez télécharger les 6 captures.', 'err'); return; }
+    const submitButton = e.target.querySelector('button[type=submit]');
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Envoi des preuves…'; }
+    try {
+      await api('/tasks/' + taskId + '/submit', { method: 'POST', body: { proofs } });
+      alertMsg('✅ Preuves envoyées ! Tâche en attente de validation.', 'ok');
+      location.hash = '#/historique';
+    } catch (err) {
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Envoyer les preuves'; }
+      alertMsg(err.message, 'err');
+    }
+  };
+}
+
+async function bindWithdraw() {
+  const methods = await api('/withdraw/methods');
+  const countries = methods.data || [];
+  const selC = $('#w-country'), selM = $('#w-mode');
+  const selP = $('#w-phone');
+  const fillModes = () => {
+    const c = countries[Number(selC.value)];
+    if (!c) return;
+    selM.innerHTML = (c.paymentMethods || []).map(m => `<option value="${esc(m.key)}">${esc(m.name)}</option>`).join('');
+    if (selP && c.dial) selP.placeholder = '+' + c.dial + ' XX XX XX XX';
+  };
+  selC.onchange = fillModes;
+  fillModes();
+  $('#f-withdraw').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const c = countries[Number(selC.value)];
+    const body = {
+      amount: fd.get('amount'), country: c.country, countryCode: c.code,
+      phone: fd.get('phone'), withdraw_mode: fd.get('withdraw_mode')
+    };
+    try {
+      await api('/withdrawals', { method: 'POST', body });
+      alertMsg('✅ Demande de retrait envoyée.', 'ok');
+      route();
+    } catch (err) { alertMsg(err.message, 'err'); }
+  };
+  const list = $('#wd-list');
+  try {
+    const wds = await api('/withdrawals/mine');
+    list.innerHTML = wds.length ? `<table><tr><th>#</th><th>Montant</th><th>Numéro</th><th>Statut</th></tr>
+      ${wds.map(w => `<tr><td>${w.id}</td><td>${fcfa(w.amount)}</td><td>${esc(w.phone)}</td><td>${wdBadge(w.status)}</td></tr>`).join('')}</table>`
+      : '<p class="muted">Aucun retrait.</p>';
+  } catch { list.textContent = 'Indisponible.'; }
+}
+
+function wdBadge(st) {
+  if (st === 'success') return '<span class="badge b-ok">✅ Réussi</span>';
+  if (st === 'pending') return '<span class="badge b-w">⏳ En attente</span>';
+  return '<span class="badge b-r">❌ Échoué</span>';
+}
+
+async function bindCampaign(meta) {
+  const free = meta.billingMode === 'free';
+  const linkPayment = !free && meta.paymentMethod === 'link';
+  const price = free ? 0 : Number(meta.pricePerInteraction);
+  const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
+  const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
+  $('#c-n').min = String(minInteractions);
+  $('#c-n').oninput = (e) => { $('#c-price').textContent = free ? 'Gratuit' : fcfa((parseInt(e.target.value) || 0) * price); };
+
+  const selCountry = $('#c-operator') ? $('#c-country') : null;
+  const selOp = $('#c-operator');
+  const phone = $('#c-phone');
+  const otpBox = $('#c-otp-box'), otpHint = $('#c-otp-hint'), otpInput = $('#c-otp');
+  let countries = [], operators = [];
+
+  const currentCountry = () => countries.find((c) => c.code === (selCountry && selCountry.value));
+  const currentOperator = () => operators.find((o) => o.slug === (selOp && selOp.value));
+
+  const refreshOtp = () => {
+    const op = currentOperator();
+    const need = Boolean(op && op.otp_required);
+    otpBox.style.display = need ? '' : 'none';
+    otpInput.required = need;
+    otpHint.textContent = need
+      ? 'Composez ' + (op.ussd_code || 'le code USSD de votre opérateur') + ' sur votre téléphone, puis saisissez le code reçu.'
+      : '';
+  };
+
+  const loadOperators = async () => {
+    const c = currentCountry();
+    if (!c) return;
+    phone.placeholder = '+' + c.dial + ' XX XX XX XX';
+    selOp.innerHTML = '<option value="">Chargement…</option>';
+    try {
+      const r = await api('/sebpay/operators?country=' + encodeURIComponent(c.code));
+      operators = r.data || [];
+      selOp.innerHTML = operators.length
+        ? operators.map((o) => `<option value="${esc(o.slug)}">${esc(o.name)}</option>`).join('')
+        : '<option value="">Aucun réseau disponible</option>';
+    } catch {
+      operators = [];
+      selOp.innerHTML = '<option value="">Réseaux indisponibles, réessayez</option>';
+    }
+    refreshOtp();
+  };
+
+  if (selCountry) {
+    try {
+      const r = await api('/sebpay/countries');
+      countries = r.data || [];
+      selCountry.innerHTML = countries.map((c) => `<option value="${esc(c.code)}">${esc(c.name)} (+${esc(c.dial)})</option>`).join('');
+    } catch {
+      selCountry.innerHTML = '<option value="">Liste des pays indisponible</option>';
+    }
+    selCountry.onchange = loadOperators;
+    selOp.onchange = refreshOtp;
+    await loadOperators();
+  }
+
+  $('#f-campaign').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const btn = e.target.querySelector('button');
+    if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : linkPayment ? 'Redirection vers SebPay…' : 'Paiement en cours…'; }
+    try {
+      const r = await api('/campaigns', {
+        method: 'POST',
+        body: {
+          link: fd.get('link'),
+          interactions: fd.get('interactions'),
+          country_code: fd.get('country_code'),
+          operator: fd.get('operator'),
+          phone: fd.get('phone'),
+          otp_code: fd.get('otp_code') || ''
+        }
+      });
+      if (free) {
+        alertMsg('✅ Campagne gratuite enregistrée.', 'info');
+        window.location.href = r.successUrl;
+      } else if (linkPayment) {
+        window.location.href = r.payUrl;
+      } else {
+        if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
+        window.location.href = r.successUrl;
+      }
+    } catch (err) {
+      if (err.paymentBusy) {
+        if (err.sameUser && err.campaignId) {
+          window.location.href = '/success.html?campaign=' + encodeURIComponent(err.campaignId);
+          return;
+        }
+        let remaining = Math.max(0, Number(err.waitSeconds) || 180);
+        if (btn) {
+          btn.disabled = true;
+          const label = () => {
+            const min = Math.floor(remaining / 60);
+            const sec = String(remaining % 60).padStart(2, '0');
+            btn.textContent = 'Veuillez patienter — ' + min + ':' + sec;
+          };
+          label();
+          const countdown = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(countdown);
+              btn.disabled = false;
+              btn.textContent = linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay';
+              alertMsg('Le paiement précédent est terminé. Vous pouvez maintenant payer.', 'info');
+            } else label();
+          }, 1000);
+        }
+        alertMsg(err.message + ' Temps restant : ' + remaining + ' seconde(s).', 'info');
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'; }
+        alertMsg(err.message, 'err');
+      }
+    }
+  };
+}
+
+async function loadTx() {
+  const el = $('#tx-list');
+  if (!el) return;
+  try {
+    const { user } = await api('/auth/me');
+    el.textContent = 'Solde actuel : ' + fcfa(user.balance) + (user.reserved > 0 ? ' (' + fcfa(user.reserved) + ' réservés)' : '');
+  } catch { el.textContent = ''; }
+}
+
+// ===================== ASSISTANT KORA =====================
+const assistantState = {
+  messages: [{ role: 'assistant', content: 'Bonjour 👋 Je suis Kora, votre assistant KoraBoost. Je peux vous guider pour gagner de l’argent, lancer une campagne ou faire un retrait.' }]
+};
+
+function renderAssistantMessages() {
+  const box = $('#assistant-messages');
+  if (!box) return;
+  box.innerHTML = assistantState.messages.map(m =>
+    '<div class="assistant-msg ' + (m.role === 'user' ? 'user' : 'bot') + '">' + esc(m.content) + '</div>'
+  ).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function addAssistantMessage(role, content) {
+  assistantState.messages.push({ role, content });
+  renderAssistantMessages();
+}
+
+async function askAssistant(question) {
+  const text = String(question || '').trim();
+  if (!text) return;
+  addAssistantMessage('user', text);
+  const input = $('#assistant-input');
+  if (input) input.value = '';
+  const send = document.querySelector('.assistant-form button');
+  if (send) { send.disabled = true; send.textContent = '…'; }
+  try {
+    const result = await api('/assistant', {
+      method: 'POST',
+      body: {
+        messages: assistantState.messages.slice(-8).map(m => ({ role: m.role, content: m.content }))
+      }
+    });
+    addAssistantMessage('assistant', result.answer || 'Je n’ai pas pu répondre pour le moment.');
+  } catch (err) {
+    addAssistantMessage('assistant', err.message || 'Le service est momentanément indisponible.');
+  } finally {
+    if (send) { send.disabled = false; send.textContent = '➤'; }
+  }
+}
+
+function initAssistant() {
+  renderAssistantMessages();
+  $('#assistant-launcher').onclick = () => {
+    $('#assistant-panel').classList.toggle('open');
+    if ($('#assistant-panel').classList.contains('open')) $('#assistant-input').focus();
+  };
+  $('#assistant-close').onclick = () => $('#assistant-panel').classList.remove('open');
+  $('#assistant-form').onsubmit = (e) => { e.preventDefault(); askAssistant($('#assistant-input').value); };
+  document.querySelectorAll('.assistant-quick button').forEach(button => {
+    button.onclick = () => askAssistant(button.dataset.question);
+  });
+}
+
+function setRouteLoading(loading) {
+  const loader = $('#route-loader');
+  if (loader) loader.classList.toggle('loading', loading);
+}
+
+// ===================== ROUTEUR =====================
+async function route() {
+  const app = $('#app');
+  const hash = location.hash || '#/';
+  const needAuth = ['#/tableau', '#/taches', '#/historique', '#/retrait', '#/campagnes'];
+  const m = hash.match(/^#\/tache\/(\d+)$/);
+  setRouteLoading(true);
+  try {
+    if (needAuth.includes(hash) || m) {
+      if (!S.token) { location.hash = '#/connexion'; return; }
+    }
+    if (m) { app.innerHTML = await vTask(m[1]); bindTask(); return; }
+    switch (hash) {
+      case '#/': app.innerHTML = vHome(); bindHomePanels(); break;
+      case '#/inscription': app.innerHTML = vAuth('inscription'); bindAuth('inscription'); break;
+      case '#/connexion': app.innerHTML = vAuth('connexion'); bindAuth('connexion'); break;
+      case '#/tableau': app.innerHTML = await vDashboard(); break;
+      case '#/taches': app.innerHTML = await vDashboard(); break;
+      case '#/historique': app.innerHTML = await vHistory(); loadTx(); break;
+      case '#/retrait': app.innerHTML = await vWithdraw(); bindWithdraw(); break;
+      case '#/campagnes': app.innerHTML = await vCampaigns(); await bindCampaign(await api('/meta')); break;
+      default: app.innerHTML = vHome();
+    }
+  } catch (err) {
+    app.innerHTML = '<div class="card"><p class="msg m-err">' + esc(err.message) + '</p><a class="btn btn-g" href="#/">Retour</a></div>';
+  } finally {
+    setRouteLoading(false);
+  }
+}
+
+// ===================== INIT =====================
+(async () => {
+  try { const meta = await api('/meta'); S.rules = { taskReward: meta.taskReward, minWithdrawal: meta.minWithdrawal }; } catch {}
+  const params = new URLSearchParams(location.search);
+  if (params.get('paiement') === 'confirme') { alertMsg('✅ Paiement confirmé ! Votre campagne est envoyée à l\'administrateur.', 'ok'); history.replaceState(null, '', '/'); }
+  if (params.get('paiement') === 'en_attente') { alertMsg('⏳ Paiement en cours de confirmation. La campagne apparaîtra après validation.', 'info'); history.replaceState(null, '', '/'); }
+  if (params.get('paiement') === 'annule') { alertMsg('❌ Paiement annulé.', 'err'); history.replaceState(null, '', '/'); }
+  if (params.get('oauth') === 'success') {
+    try {
+      const session = await api('/auth/session');
+      if (session.token) { saveSession(session.token, session.user); alertMsg('✅ Compte connecté avec succès.', 'ok'); }
+    } catch (err) { alertMsg(err.message, 'err'); }
+    history.replaceState(null, '', '/');
+  }
+  if (params.get('oauth') === 'error') {
+    alertMsg('Connexion sociale impossible : ' + (params.get('reason') || 'réessayez plus tard.'), 'err');
+    history.replaceState(null, '', '/');
+  }
+  renderNav();
+  if (S.token) { try { const { user } = await api('/auth/me'); S.user = user; renderNav(); } catch {} }
+  initAssistant();
+  route();
+})();
+window.addEventListener('hashchange', route);
+</script>
+</body>
+</html>

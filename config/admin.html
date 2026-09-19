@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>Administration — KoraBoost</title>
+<style>
+  :root{--bg:#07111f;--card:#10213a;--accent:#56e39f;--accent2:#7c8cff;--txt:#f3f7fb;--mut:#91a4bb;--red:#fb7185;--amber:#f7c873;}
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+  body{background:radial-gradient(circle at 10% 0%,rgba(72,214,232,.12),transparent 32rem),var(--bg);color:var(--txt);min-height:100vh}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #334155;margin-bottom:20px;flex-wrap:wrap;gap:8px}
+  .logo{font-weight:800;font-size:1.2rem;letter-spacing:-.03em}.logo strong{color:var(--accent)}
+  .btn{padding:9px 16px;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:.88rem;text-decoration:none;color:#fff}
+  .btn-p{background:var(--accent);color:#052e16}.btn-b{background:var(--accent2)}
+  .btn-r{background:var(--red)}.btn-g{background:#334155}
+  .btn-sm{padding:5px 10px;font-size:.78rem}
+  #btn-logout{padding:13px 22px;font-size:.96rem;min-height:46px;transition:transform .2s,box-shadow .2s}
+  #btn-logout:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(251,113,133,.25)}
+  .card{background:linear-gradient(145deg,rgba(16,33,58,.95),rgba(9,23,41,.92));border:1px solid rgba(148,163,184,.18);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 18px 55px rgba(0,0,0,.22)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:rgba(15,29,51,.78);border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:14px;text-align:center}
+  .stat b{display:block;font-size:1.5rem}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .tab{padding:8px 16px;border-radius:10px;background:#334155;cursor:pointer;border:none;color:var(--txt);font-weight:700}
+  .tab.on{background:var(--accent2);color:#fff}
+  table{width:100%;border-collapse:collapse;font-size:.85rem}
+  th,td{padding:8px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;word-break:break-word}
+  input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #2c4663;background:#091727;color:var(--txt);margin-bottom:10px}
+  label{font-size:.83rem;color:var(--mut);display:block;margin-bottom:4px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700}
+  .b-ok{background:#14532d;color:#4ade80}.b-w{background:#78350f;color:#fbbf24}
+  .b-r{background:#7f1d1d;color:#fca5a5}.b-g{background:#334155;color:#cbd5e1}
+  .msg{padding:12px;border-radius:10px;margin-bottom:14px;font-weight:600}
+  .m-ok{background:#14532d;color:#4ade80}.m-err{background:#7f1d1d;color:#fca5a5}
+  .muted{color:var(--mut)}
+  .health-summary{display:flex;align-items:center;gap:12px;padding:16px;border-radius:14px;background:rgba(255,255,255,.05);margin-bottom:16px}
+  .health-icon{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:rgba(86,227,159,.15);font-size:1.35rem}
+  .health-list{display:grid;gap:9px}
+  .health-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 14px;border:1px solid rgba(148,163,184,.15);border-radius:12px;background:rgba(3,14,27,.28)}
+  .health-row small{display:block;color:var(--mut);margin-top:4px;line-height:1.35}
+  .health-status{white-space:nowrap;font-size:.75rem;font-weight:800;padding:5px 9px;border-radius:20px}
+  .health-ok{background:rgba(86,227,159,.15);color:#8cf2bd}.health-warning{background:rgba(247,200,115,.15);color:#f7d895}.health-error{background:rgba(251,113,133,.15);color:#ffabb8}
+  .health-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.8);overflow:auto;padding:20px;z-index:50}
+  .modal .inner{max-width:700px;margin:20px auto}
+  .modal img{max-width:100%;border-radius:10px;margin:8px 0}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🛠️ Admin <span class="muted"><strong>KoraBoost</strong></span></div>
+    <button id="btn-logout" class="btn btn-r hidden">Déconnecter</button>
+  </header>
+  <div id="alerts"></div>
+  <div id="app"></div>
+</div>
+
+<script>
+const S = { token: localStorage.getItem('tr_admin') || null };
+const $ = s => document.querySelector(s);
+const fcfa = n => Number(n).toLocaleString('fr-FR') + ' FCFA';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function msg(t, type) {
+  const d = document.createElement('div');
+  d.className = 'msg m-' + type; d.textContent = t;
+  $('#alerts').appendChild(d);
+  setTimeout(() => d.remove(), 5000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 || res.status === 403) { S.token = null; localStorage.removeItem('tr_admin'); render(); throw new Error(data.error || 'Accès refusé.'); }
+  if (!res.ok) throw new Error(data.error || 'Erreur serveur.');
+  return data;
+}
+
+function vLogin() {
+  return `<div class="card" style="max-width:420px;margin:40px auto">
+    <h2>Connexion administrateur</h2>
+    <form id="f-login">
+      <label>E-mail ou téléphone admin</label><input name="identifier" required placeholder="admin@exemple.com">
+      <label>Mot de passe</label><input name="password" type="password" required>
+      <button class="btn btn-b" style="width:100%">Connexion</button>
+    </form>
+  </div>`;
+}
+
+async function vDash(tab) {
+  tab = tab || 'stats';
+  const st = await api('/admin/stats');
+  const tabs = [
+    ['stats','📊 Statistiques'],['campagnes','📢 Campagnes'],['verifications','📸 Vérifications'],
+    ['retraits','💸 Retraits'],['users','👥 Utilisateurs'],['tx','💰 Transactions'],['system','🩺 Configuration']
+  ];
+  let body = '';
+  if (tab === 'stats') {
+    body = `<div class="stats">
+      <div class="stat"><b>${st.utilisateurs}</b><span class="muted">Inscrits</span></div>
+      <div class="stat"><b style="color:#4ade80">${st.actifs}</b><span class="muted">Actifs</span></div>
+      <div class="stat"><b style="color:#fbbf24">${st.campagnes_en_attente}</b><span class="muted">Campagnes à valider</span></div>
+      <div class="stat"><b>${st.campagnes_actives}</b><span class="muted">Campagnes actives</span></div>
+      <div class="stat"><b style="color:#fbbf24">${st.verifications}</b><span class="muted">Preuves à vérifier</span></div>
+      <div class="stat"><b style="color:#fbbf24">${st.retraits_en_attente}</b><span class="muted">Retraits en attente</span></div>
+      <div class="stat"><b>${fcfa(st.encaisse)}</b><span class="muted">Encaissé</span></div>
+      <div class="stat"><b>${fcfa(st.decaisse)}</b><span class="muted">Décaissé</span></div>
+    </div>
+     <div class="card"><p>👥 Utilisateurs actifs : <b>${st.actifs}</b> — ❤️ Capacité actuelle : <b>${st.actifs} likes</b> — Mode : <b>${st.billing_mode === 'free' ? 'Free (sans commission)' : 'Payant'}</b> — Récompense/tâche : <b>${st.recompense_tache} FCFA</b></p></div>`;
+  } else if (tab === 'campagnes') {
+    const rows = await api('/admin/campaigns?status=pending_admin');
+    const act = await api('/admin/campaigns?status=active');
+    body = `<h3 style="margin-bottom:10px">⏳ À valider (${rows.length})</h3>
+      ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Demandé</th><th>Payé</th><th></th></tr>
+      ${rows.map(c => `<tr><td>#${c.id}</td><td>${esc(c.prenom)} ${esc(c.nom)}<br><span class="muted">${esc(c.telephone)}</span></td>
+        <td>${c.platform}</td><td><a href="${esc(c.link)}" target="_blank">lien</a></td>
+         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
+         <td>${c.linkPayment && c.payment_status === 'claimed' ? `<button class="btn btn-b btn-sm" onclick="confirmLinkPayment(${c.id})">Confirmer paiement</button>` : ''}
+             ${(!c.linkPayment || c.payment_status === 'paid' || c.free) ? '<button class="btn btn-p btn-sm" onclick="decideCamp(' + c.id + ',true)">Approuver</button>' : ''}
+            <button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Refuser</button></td></tr>`).join('')}</table>`
+      : '<p class="muted">Aucune campagne en attente.</p>'}
+      <h3 style="margin:16px 0 10px">✅ Actives (${act.length})</h3>
+      ${act.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Fait</th><th></th></tr>
+      ${act.map(c => `<tr><td>#${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${c.faits}/${c.interactions}</td>
+        <td><button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Suspendre</button></td></tr>`).join('')}</table>` : ''}`;
+  } else if (tab === 'verifications') {
+    const rows = await api('/admin/submissions?status=pending');
+    body = `<h3 style="margin-bottom:10px">📸 Preuves à vérifier (${rows.length})</h3>
+      ${rows.length ? `<table><tr><th>#</th><th>Utilisateur</th><th>Campagne</th><th>Plateforme</th><th>Captures</th><th></th></tr>
+      ${rows.map(s => `<tr><td>${s.id}</td><td>${esc(s.prenom)} ${esc(s.nom)}<br><span class="muted">${esc(s.telephone)}</span></td>
+        <td>#${s.campaign_id}</td><td>${s.platform}</td><td>${s.captures}</td>
+        <td><button class="btn btn-b btn-sm" onclick="viewSub(${s.id})">Voir</button></td></tr>`).join('')}</table>`
+      : '<p class="muted">Rien à vérifier.</p>'}`;
+  } else if (tab === 'retraits') {
+    const rows = await api('/admin/withdrawals');
+    body = `<table><tr><th>#</th><th>Utilisateur</th><th>Montant</th><th>Pays</th><th>Numéro</th><th>Méthode</th><th>Token MF</th><th>Statut</th></tr>
+      ${rows.map(w => `<tr><td>${w.id}</td><td>${esc(w.prenom)} ${esc(w.nom)}</td><td>${fcfa(w.amount)}</td>
+        <td>${esc(w.country)}</td><td>${esc(w.phone)}</td><td>${esc(w.withdraw_mode)}</td>
+        <td class="muted">${esc(w.mf_token || '—')}</td><td>${w.status === 'success' ? '<span class="badge b-ok">✅ Réussi</span>' : w.status === 'pending' ? '<span class="badge b-w">⏳ En attente</span>' : '<span class="badge b-r">❌ Échoué</span>'}</td></tr>`).join('')}</table>`;
+  } else if (tab === 'users') {
+    const rows = await api('/admin/users');
+    body = `<table><tr><th>#</th><th>Nom</th><th>E-mail</th><th>Téléphone</th><th>Pays</th><th>Solde</th><th>Réservé</th><th>Tâches validées</th><th>Statut</th><th></th></tr>
+      ${rows.map(u => `<tr><td>${u.id}</td><td>${esc(u.prenom)} ${esc(u.nom)}${u.role === 'admin' ? ' <span class="badge b-g">ADMIN</span>' : ''}</td>
+        <td>${esc(u.email || '—')}</td><td>${esc(u.telephone || '—')}</td><td>${esc(u.pays)}</td><td>${fcfa(u.balance)}</td><td>${fcfa(u.reserved)}</td><td>${u.taches_validees}</td>
+        <td>${u.status === 'active' ? '<span class="badge b-ok">Actif</span>' : '<span class="badge b-r">Suspendu</span>'}</td>
+        <td>${u.role !== 'admin' ? (u.status === 'active'
+          ? `<button class="btn btn-r btn-sm" onclick="userStatus(${u.id},'suspend')">Suspendre</button>`
+          : `<button class="btn btn-p btn-sm" onclick="userStatus(${u.id},'activate')">Réactiver</button>`) : ''}</td></tr>`).join('')}</table>`;
+  } else if (tab === 'tx') {
+    const rows = await api('/admin/transactions');
+    body = `<table><tr><th>#</th><th>Utilisateur</th><th>Type</th><th>Montant</th><th>Référence</th><th>Date</th></tr>
+      ${rows.map(t => `<tr><td>${t.id}</td><td>${esc(t.prenom)} ${esc(t.nom)}</td><td>${esc(t.type)}</td><td>${fcfa(t.amount)}</td>
+        <td>${esc(t.ref || '—')}</td><td>${new Date(t.created_at).toLocaleString('fr-FR')}</td></tr>`).join('')}</table>`;
+  } else if (tab === 'system') {
+    const health = await api('/health');
+    const settings = await api('/admin/settings');
+    const statusLabel = { ok: 'Opérationnel', warning: 'À configurer', error: 'Bloquant' };
+    const statusIcon = { ok: '✅', warning: '⚠️', error: '❌' };
+    body = `<div class="card">
+      <div class="health-actions">
+        <div><h2 style="margin-bottom:4px">🩺 Santé du déploiement</h2><p class="muted">Contrôle sans afficher les clés ni les mots de passe.</p></div>
+        <button class="btn btn-g btn-sm" onclick="showTab('system')">↻ Actualiser</button>
+      </div>
+      <div class="health-summary">
+        <div class="health-icon">${statusIcon[health.status]}</div>
+        <div><b>${statusLabel[health.status]}</b><div class="muted" style="font-size:.82rem">Dernière vérification : ${new Date(health.checkedAt).toLocaleString('fr-FR')}</div></div>
+      </div>
+      <div class="health-list">${health.checks.map(c => `<div class="health-row">
+        <div><b>${esc(c.name)}</b><small>${esc(c.detail)}</small></div>
+        <span class="health-status health-${c.status}">${statusIcon[c.status]} ${statusLabel[c.status]}</span>
+      </div>`).join('')}</div>
+    </div>
+     <div class="card">
+       <h2 style="margin-bottom:6px">⚙️ Réglages métier</h2>
+       <p class="muted" style="margin-bottom:14px">Ces valeurs s’appliquent immédiatement aux nouvelles campagnes et aux validations de preuves.</p>
+       <label>Mode de facturation des campagnes</label>
+       <select id="setting-billing-mode">
+         <option value="paid" ${settings.billingMode === 'paid' ? 'selected' : ''}>Payant — le client paie et l'utilisateur reçoit sa récompense</option>
+         <option value="free" ${settings.billingMode === 'free' ? 'selected' : ''}>Free — le client ne paie rien et personne ne reçoit de commission</option>
+       </select>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les campagnes sont enregistrées sans paiement SebPay.</p>
+       <label>Mode de paiement SebPay</label>
+       <select id="setting-payment-method">
+         <option value="api" ${settings.paymentMethod === 'api' ? 'selected' : ''}>API SebPay — paiement vérifié automatiquement par l’API</option>
+         <option value="link" ${settings.paymentMethod === 'link' ? 'selected' : ''}>Lien SebPay — rediriger le client vers un lien</option>
+       </select>
+       <label>Lien de paiement SebPay</label>
+       <input id="setting-sebpay-link" type="url" value="${esc(settings.sebpayPaymentLink || '')}" placeholder="https://...">
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, le client est redirigé vers cette adresse. Après 3 minutes sur la page de succès, il confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
+       <div class="grid2">
+         <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
+           <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>
+         <div><label>Récompense utilisateur par tâche validée, en FCFA</label>
+           <input id="setting-reward" type="number" min="0.01" step="0.01" value="${settings.taskReward}"></div>
+       </div>
+       <div class="grid2">
+         <div><label>Montant minimum d’une campagne, en FCFA</label>
+           <input id="setting-min-campaign" type="number" min="0.01" step="0.01" value="${settings.minCampaignAmount}"></div>
+         <div><label>Solde minimum pour un retrait, en FCFA</label>
+           <input id="setting-min-withdrawal" type="number" min="0.01" step="0.01" value="${settings.minWithdrawal}"></div>
+       </div>
+       <label>Clé API Groq (laisser vide pour conserver la clé actuelle)</label>
+       <input id="setting-groq-key" type="password" autocomplete="new-password" placeholder="${esc(settings.groqConfigured ? 'Clé enregistrée : ' + settings.groqKeyMasked : 'gsk_...')}">
+       <label>Modèle Groq</label><input id="setting-groq-model" value="${esc(settings.groqModel)}" maxlength="120">
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">${settings.groqConfigured ? '✅ Clé Groq configurée. Elle reste masquée.' : '⚠️ Aucune clé Groq configurée.'}</p>
+       <button class="btn btn-p" onclick="saveSettings()">Enregistrer les réglages</button>
+       ${settings.groqConfigured ? '<button class="btn btn-r btn-sm" style="margin-left:8px" onclick="clearGroqKey()">Supprimer la clé Groq</button>' : ''}
+     </div>
+     <div class="card"><b>URL externe de diagnostic</b><p class="muted" style="margin-top:7px">Après le déploiement, ouvrez <code>/api/health</code> sur votre domaine Render pour obtenir ce même état au format JSON.</p></div>`;
+  }
+  return `<div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${k === tab ? 'on' : ''}" onclick="showTab('${k}')">${l}</button>`).join('')}</div>${body}`;
+}
+
+async function viewSub(id) {
+  try {
+    const [d, settings] = await Promise.all([api('/admin/submissions/' + id), api('/admin/settings')]);
+    const s = d.submission, proofs = d.proofs;
+    const labels = { like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `<div class="inner card">
+      <h3>📸 Preuve #${s.id} — ${esc(s.prenom)} ${esc(s.nom)} — Campagne #${s.campaign_id} (${s.platform})</h3>
+      <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Like : ✅ · Commentaires : 5 · Captures : ${proofs.length}</p>
+      ${proofs.map(p => `<h4 style="margin-top:10px">${labels[p.kind] || p.kind}</h4><img src="${p.image}">`).join('')}
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+         <button class="btn btn-p" onclick="reviewSub(${s.id},true)">✅ Valider (${settings.billingMode === 'free' ? 'aucune commission' : '+' + settings.taskReward + ' FCFA'})</button>
+        <select id="rej-reason" style="width:auto;flex:1;min-width:200px">
+          <option>Capture insuffisante</option><option>Commentaire manquant</option>
+          <option>Preuve illisible</option><option>Tâche incorrectement réalisée</option>
+        </select>
+        <button class="btn btn-r" onclick="reviewSub(${s.id},false)">❌ Refuser</button>
+        <button class="btn btn-g" onclick="this.closest('.modal').remove()">Fermer</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function reviewSub(id, approve) {
+  try {
+    const reason = approve ? null : ($('#rej-reason') ? $('#rej-reason').value : 'Preuve refusée');
+    await api('/admin/submissions/' + id + '/review', { method: 'POST', body: { approve, reason } });
+    msg(approve ? '✅ Tâche validée, récompense versée.' : '❌ Preuve refusée.', 'ok');
+    document.querySelectorAll('.modal').forEach(m => m.remove());
+    render();
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function decideCamp(id, approve) {
+  const note = approve ? null : prompt('Motif du refus / suspension :') || '';
+  try {
+    await api('/admin/campaigns/' + id + '/decision', { method: 'POST', body: { approve, note } });
+    msg(approve ? '✅ Campagne approuvée, tâches créées.' : '❌ Campagne refusée/suspendue.', 'ok');
+    render();
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function confirmLinkPayment(id) {
+  if (!confirm('As-tu vérifié ce paiement dans SebPay ?')) return;
+  try {
+    await api('/admin/campaigns/' + id + '/confirm-payment', { method: 'POST', body: {} });
+    msg('✅ Paiement confirmé. La campagne peut maintenant être approuvée.', 'ok');
+    render('campagnes');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function userStatus(id, action) {
+  try {
+    await api('/admin/users/' + id + '/status', { method: 'POST', body: { action } });
+    msg('Utilisateur mis à jour.', 'ok');
+    render();
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function saveSettings() {
+  try {
+    const groqKey = $('#setting-groq-key') ? $('#setting-groq-key').value.trim() : '';
+    await api('/admin/settings', {
+      method: 'POST',
+      body: {
+        billingMode: $('#setting-billing-mode').value,
+        paymentMethod: $('#setting-payment-method').value,
+        sebpayPaymentLink: $('#setting-sebpay-link').value.trim(),
+        pricePerInteraction: Number($('#setting-price').value),
+        taskReward: Number($('#setting-reward').value),
+        minCampaignAmount: Number($('#setting-min-campaign').value),
+        minWithdrawal: Number($('#setting-min-withdrawal').value),
+        groqApiKey: groqKey,
+        groqModel: $('#setting-groq-model').value.trim()
+      }
+    });
+    msg('✅ Réglages enregistrés et actifs.', 'ok');
+    render('system');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function clearGroqKey() {
+  if (!confirm('Supprimer la clé Groq ? L’assistant sera désactivé.')) return;
+  try {
+    await api('/admin/settings', {
+      method: 'POST',
+      body: {
+        billingMode: $('#setting-billing-mode').value,
+        paymentMethod: $('#setting-payment-method').value,
+        sebpayPaymentLink: $('#setting-sebpay-link').value.trim(),
+        pricePerInteraction: Number($('#setting-price').value),
+        taskReward: Number($('#setting-reward').value),
+        minCampaignAmount: Number($('#setting-min-campaign').value),
+        minWithdrawal: Number($('#setting-min-withdrawal').value),
+        clearGroqKey: true
+      }
+    });
+    msg('Clé Groq supprimée.', 'ok');
+    render('system');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+function showTab(tab) { render(tab); }
+
+async function render(tab) {
+  const app = $('#app');
+  if (!S.token) { $('#btn-logout').classList.add('hidden'); app.innerHTML = vLogin(); bindLogin(); return; }
+  $('#btn-logout').classList.remove('hidden');
+  try { app.innerHTML = await vDash(tab); } catch (e) { app.innerHTML = '<div class="card msg m-err">' + esc(e.message) + '</div>'; }
+}
+
+function bindLogin() {
+  $('#f-login').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const r = await api('/auth/login', { method: 'POST', body: { identifier: fd.get('identifier'), password: fd.get('password') } });
+      if (r.user.role !== 'admin') throw new Error('Ce compte n\'est pas administrateur.');
+      S.token = r.token; localStorage.setItem('tr_admin', r.token);
+      render();
+    } catch (err) { msg(err.message, 'err'); }
+  };
+}
+
+$('#btn-logout').onclick = () => { S.token = null; localStorage.removeItem('tr_admin'); render(); };
+render();
+</script>
+</body>
+</html>

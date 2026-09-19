@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paiement confirmé — KoraBoost</title>
+  <style>
+    :root { color-scheme: dark; --bg:#09111f; --panel:#111d31; --line:#263852; --text:#eff6ff; --muted:#a8b8d0; --accent:#6ee7b7; --warn:#f7c873; --danger:#ff8b8b; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:radial-gradient(circle at 20% 10%, #17365a 0, transparent 38%), var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(680px,100%); border:1px solid var(--line); border-radius:24px; padding:clamp(24px,6vw,54px); background:rgba(17,29,49,.94); box-shadow:0 24px 80px rgba(0,0,0,.28); }
+    .mark { width:52px; height:52px; display:grid; place-items:center; border-radius:16px; background:rgba(110,231,183,.14); color:var(--accent); font-size:25px; }
+    h1 { margin:22px 0 10px; font-size:clamp(1.8rem,5vw,3rem); line-height:1.05; letter-spacing:-.04em; }
+    p { color:var(--muted); line-height:1.65; }
+    .status { display:flex; align-items:center; gap:10px; margin:24px 0; padding:14px 16px; border:1px solid var(--line); border-radius:14px; color:var(--warn); }
+    .status.ok { color:var(--accent); border-color:rgba(110,231,183,.35); }
+    .status.error { color:var(--danger); border-color:rgba(255,139,139,.35); }
+    .link-box { display:none; margin:20px 0; padding:18px; border:1px solid var(--line); border-radius:16px; background:rgba(5,12,24,.38); }
+    .link-box.visible { display:block; }
+    .label { margin:0 0 8px; font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    a { color:var(--accent); word-break:break-all; }
+    .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
+    button, .button { border:0; border-radius:12px; padding:13px 18px; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; background:var(--accent); color:#062318; }
+    button.secondary, .button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
+    button:disabled { cursor:default; opacity:.55; }
+    .small { font-size:.9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="mark">✓</div>
+  <h1 id="title">Vérification du paiement</h1>
+  <p id="description">SebPay confirme votre transaction. Cette page se met à jour automatiquement.</p>
+  <div id="status" class="status">Connexion au serveur…</div>
+  <section id="link-box" class="link-box">
+    <p class="label">Lien de la campagne</p>
+    <a id="campaign-link" target="_blank" rel="noopener noreferrer"></a>
+    <p id="link-help" class="small">Vérifiez que ce lien correspond bien à la page Facebook ou à la vidéo TikTok à traiter.</p>
+  </section>
+  <div class="actions">
+    <button id="confirm" type="button" disabled>Confirmer ce lien</button>
+    <a class="button secondary" href="/">Retour à KoraBoost</a>
+  </div>
+</main>
+<script>
+  const token = localStorage.getItem('tr_token');
+  const params = new URLSearchParams(location.search);
+  const campaignId = params.get('campaign');
+  const statusEl = document.querySelector('#status');
+  const titleEl = document.querySelector('#title');
+  const descriptionEl = document.querySelector('#description');
+  const linkBox = document.querySelector('#link-box');
+  const linkEl = document.querySelector('#campaign-link');
+  const confirmButton = document.querySelector('#confirm');
+  let campaign;
+  let timer;
+  let countdownTimer;
+
+  function setStatus(message, kind) {
+    statusEl.textContent = message;
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  async function api(path, options) {
+    const response = await fetch('/api' + path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Impossible de vérifier la campagne.');
+    return data;
+  }
+
+  function showCampaign(data) {
+    campaign = data;
+    linkBox.classList.add('visible');
+    linkEl.textContent = data.link;
+    linkEl.href = data.link;
+    const isLinkPayment = data.payment_method === 'link';
+    if (isLinkPayment && data.payment_status === 'pending') {
+      // Le serveur est la source de vérité : le compteur ne peut pas être
+      // remis à 180 secondes en rechargeant la page.
+      const remaining = data.lockExpiresAt
+        ? Math.max(0, Math.ceil((new Date(data.lockExpiresAt).getTime() - Date.now()) / 1000))
+        : Number(data.lockRemainingSeconds || 0);
+      confirmButton.disabled = remaining > 0;
+      confirmButton.textContent = remaining > 0
+        ? 'Attendre encore ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0')
+        : 'Confirmer le paiement à l’administrateur';
+      titleEl.textContent = 'Retour après paiement SebPay';
+      descriptionEl.textContent = 'Votre compte est identifié. Le paiement est réservé pendant trois minutes ; les autres clients voient le temps restant et doivent patienter.';
+      setStatus(remaining > 0
+        ? 'Paiement en cours : encore ' + remaining + ' seconde(s).'
+        : 'Vous pouvez maintenant confirmer votre retour à l’administrateur.', remaining > 0 ? undefined : 'ok');
+      return;
+    }
+    if (isLinkPayment && data.payment_status === 'claimed') {
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Confirmation envoyée';
+      titleEl.textContent = 'Bravo, votre retour est enregistré !';
+      descriptionEl.textContent = 'L’administrateur doit vérifier le paiement dans SebPay avant d’approuver la campagne.';
+      setStatus('Votre paiement est en attente de vérification par l’administrateur.', 'ok');
+      if (countdownTimer) clearInterval(countdownTimer);
+      return;
+    }
+    confirmButton.disabled = data.payment_status !== 'paid' || data.linkConfirmed;
+    confirmButton.textContent = data.linkConfirmed ? 'Lien confirmé' : 'Confirmer ce lien';
+    if (data.payment_status === 'paid') {
+      titleEl.textContent = data.free ? 'Campagne gratuite enregistrée' : 'Bravo, votre paiement est confirmé !';
+      descriptionEl.textContent = data.free
+        ? 'Votre campagne gratuite est enregistrée et sera vérifiée par l’administrateur.'
+        : 'Votre campagne est enregistrée. Vérifiez le lien Facebook ou TikTok avant son envoi à la validation.';
+      setStatus(data.free ? 'Aucun paiement ni commission ne sera appliqué.' : (data.linkConfirmed ? 'Paiement confirmé et lien enregistré.' : 'Paiement confirmé par SebPay.'), 'ok');
+      if (timer) clearInterval(timer);
+    } else if (data.payment_status === 'rejected' || data.status === 'rejected') {
+      titleEl.textContent = 'Paiement non confirmé';
+      descriptionEl.textContent = 'SebPay a refusé ou annulé cette transaction. Aucun traitement ne sera lancé pour cette campagne.';
+      setStatus('Transaction refusée.', 'error');
+      confirmButton.disabled = true;
+      if (timer) clearInterval(timer);
+    } else {
+      const remaining = data.lockExpiresAt
+        ? Math.max(0, Math.ceil((new Date(data.lockExpiresAt).getTime() - Date.now()) / 1000))
+        : 0;
+      setStatus(
+        'Paiement en attente de validation sur votre téléphone…' +
+        (remaining ? ' Réservation active encore ' + remaining + ' seconde(s).' : ''),
+      );
+    }
+  }
+
+  async function load() {
+    if (!token) {
+      titleEl.textContent = 'Connexion requise';
+      descriptionEl.textContent = 'Reconnectez-vous pour consulter la campagne liée au paiement.';
+      setStatus('Session absente.', 'error');
+      return;
+    }
+    if (!campaignId) {
+      setStatus('Référence de campagne absente.', 'error');
+      return;
+    }
+    try {
+      showCampaign(await api('/campaigns/' + encodeURIComponent(campaignId) + '/payment-status'));
+    } catch (error) {
+      setStatus(error.message, 'error');
+      if (timer) clearInterval(timer);
+    }
+  }
+
+  confirmButton.addEventListener('click', async () => {
+    confirmButton.disabled = true;
+    try {
+      const endpoint = campaign && campaign.payment_method === 'link'
+        ? '/campaigns/' + encodeURIComponent(campaignId) + '/payment-link-confirm'
+        : '/campaigns/' + encodeURIComponent(campaignId) + '/confirm-link';
+      showCampaign(await api(endpoint, { method:'POST', body:'{}' }));
+    } catch (error) {
+      setStatus(error.message, 'error');
+      confirmButton.disabled = false;
+    }
+  });
+
+  load();
+  timer = setInterval(load, 5000);
+  countdownTimer = setInterval(() => {
+    if (campaign && campaign.payment_method === 'link' && campaign.payment_status === 'pending') showCampaign(campaign);
+  }, 1000);
+</script>
+</body>
+</html>
