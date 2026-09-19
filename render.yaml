@@ -14,7 +14,7 @@ services:
       - key: ADMIN_EMAIL
         value: sossoukouam@gmail.com
       - key: ADMIN_PASSWORD
-        sync: false
+        value: arrow2026
       - key: SEED_TEST_USERS
         value: "false"
       - key: GROQ_API_KEY
