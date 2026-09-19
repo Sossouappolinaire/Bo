@@ -154,7 +154,11 @@ async function api(path, opts = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && S.token) { logout(false); throw new Error(data.error || 'Session expirée.'); }
-  if (!res.ok) throw new Error(data.error || 'Erreur serveur.');
+  if (!res.ok) {
+    const error = new Error(data.error || 'Erreur serveur.');
+    Object.assign(error, data, { status: res.status });
+    throw error;
+  }
   return data;
 }
 
@@ -391,11 +395,14 @@ async function vWithdraw() {
 async function vCampaigns() {
   const [mine, meta] = await Promise.all([api('/campaigns/mine'), api('/meta')]);
   const free = meta.billingMode === 'free';
+  const linkPayment = !free && meta.paymentMethod === 'link';
   const price = free ? 0 : Number(meta.pricePerInteraction);
   const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
   const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
   const paymentFields = free
     ? `<div class="msg m-ok">🆓 <b>Mode Free actif.</b> Cette campagne est gratuite : aucun paiement Mobile Money et aucune commission ne seront appliqués.</div>`
+    : linkPayment
+      ? `<div class="msg m-ok">🔗 <b>Paiement par lien SebPay.</b> Après validation, vous serez redirigé vers le lien de paiement. Revenez ensuite sur la page de succès pour confirmer votre retour à l’administrateur.</div>`
     : `<label>Pays</label>
        <select name="country_code" id="c-country" required><option value="">Chargement…</option></select>
        <label>Réseau Mobile Money</label>
@@ -418,7 +425,7 @@ async function vCampaigns() {
       <label>Nombre d'interactions souhaitées</label>
       <input name="interactions" id="c-n" type="number" min="${minInteractions}" value="${minInteractions}" required>
       <p>${free ? 'Prix : <b id="c-price">Gratuit</b>' : `Prix : <b id="c-price">${fcfa(minInteractions * price)}</b> <span class="muted">(${price} FCFA / interaction, minimum ${fcfa(minAmount)})</span>`}</p>
-      <button class="btn btn-b" style="width:100%">${free ? 'Créer gratuitement' : 'Payer avec SebPay'}</button>
+      <button class="btn btn-b" style="width:100%">${free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'}</button>
     </form>
   </div>
   <div class="card">
@@ -550,6 +557,7 @@ function wdBadge(st) {
 
 async function bindCampaign(meta) {
   const free = meta.billingMode === 'free';
+  const linkPayment = !free && meta.paymentMethod === 'link';
   const price = free ? 0 : Number(meta.pricePerInteraction);
   const minAmount = free ? 0 : Number(meta.minCampaignAmount || 100);
   const minInteractions = free ? 1 : Math.max(1, Math.ceil(minAmount / price));
@@ -610,7 +618,7 @@ async function bindCampaign(meta) {
     e.preventDefault();
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('button');
-    if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : 'Paiement en cours…'; }
+    if (btn) { btn.disabled = true; btn.textContent = free ? 'Création gratuite…' : linkPayment ? 'Redirection vers SebPay…' : 'Paiement en cours…'; }
     try {
       const r = await api('/campaigns', {
         method: 'POST',
@@ -623,12 +631,46 @@ async function bindCampaign(meta) {
           otp_code: fd.get('otp_code') || ''
         }
       });
-      if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
-      alertMsg(free ? '✅ Campagne gratuite enregistrée.' : 'Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
-      window.location.href = r.successUrl;
+      if (free) {
+        alertMsg('✅ Campagne gratuite enregistrée.', 'info');
+        window.location.href = r.successUrl;
+      } else if (linkPayment) {
+        window.location.href = r.payUrl;
+      } else {
+        if (r.payUrl) window.open(r.payUrl, '_blank', 'noopener,noreferrer');
+        alertMsg('Paiement SebPay initié. Validez la demande sur votre téléphone.', 'info');
+        window.location.href = r.successUrl;
+      }
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = free ? 'Créer gratuitement' : 'Payer avec SebPay'; }
-      alertMsg(err.message, 'err');
+      if (err.paymentBusy) {
+        if (err.sameUser && err.campaignId) {
+          window.location.href = '/success.html?campaign=' + encodeURIComponent(err.campaignId);
+          return;
+        }
+        let remaining = Math.max(0, Number(err.waitSeconds) || 180);
+        if (btn) {
+          btn.disabled = true;
+          const label = () => {
+            const min = Math.floor(remaining / 60);
+            const sec = String(remaining % 60).padStart(2, '0');
+            btn.textContent = 'Veuillez patienter — ' + min + ':' + sec;
+          };
+          label();
+          const countdown = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(countdown);
+              btn.disabled = false;
+              btn.textContent = linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay';
+              alertMsg('Le paiement précédent est terminé. Vous pouvez maintenant payer.', 'info');
+            } else label();
+          }, 1000);
+        }
+        alertMsg(err.message + ' Temps restant : ' + remaining + ' seconde(s).', 'info');
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = free ? 'Créer gratuitement' : linkPayment ? 'Payer via le lien SebPay' : 'Payer avec SebPay'; }
+        alertMsg(err.message, 'err');
+      }
     }
   };
 }

@@ -24,6 +24,8 @@ const SEBPAY_DEFAULT_OPERATOR = process.env.SEBPAY_DEFAULT_OPERATOR || 'mtn-bj';
 const currentSettings = () => loadSettings(pool);
 const fallbackSettings = () => ({
   billingMode: DEFAULT_SETTINGS.billing_mode === 'free' ? 'free' : 'paid',
+  paymentMethod: DEFAULT_SETTINGS.payment_method === 'link' ? 'link' : 'api',
+  sebpayPaymentLink: String(DEFAULT_SETTINGS.sebpay_payment_link || ''),
   taskReward: Number(DEFAULT_SETTINGS.task_reward),
   pricePerInteraction: Number(DEFAULT_SETTINGS.price_per_interaction),
   minCampaignAmount: Number(DEFAULT_SETTINGS.min_campaign_amount),
@@ -33,6 +35,21 @@ const fallbackSettings = () => ({
 });
 const effectiveReward = (settings) => settings.billingMode === 'free' ? 0 : settings.taskReward;
 const effectivePrice = (settings) => settings.billingMode === 'free' ? 0 : settings.pricePerInteraction;
+const PAYMENT_LOCK_SECONDS = 180;
+const PAYMENT_LOCK_ADVISORY_KEY = 8142102;
+const isHttpUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+};
+const paymentLinkFor = (base, params) => {
+  const url = new URL(String(base));
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+  return url.toString();
+};
 
 const detectPlatform = (link) => {
   const l = (link || '').toLowerCase();
@@ -44,6 +61,59 @@ const detectPlatform = (link) => {
 const logAction = (adminId, action, target, detail) =>
   pool.query('INSERT INTO admin_actions (admin_id, action, target, detail) VALUES ($1,$2,$3,$4)',
     [adminId, action, String(target), detail ? String(detail).slice(0, 500) : null]).catch(() => {});
+
+// Le verrou est persistant en PostgreSQL pour rester fiable avec plusieurs
+// instances Render. L'advisory lock protège uniquement la transaction de
+// création et évite deux paiements simultanés.
+async function createPaymentCampaignWithLock({ userId, platform, link, interactions, amount, paymentMethod, paymentReference }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [PAYMENT_LOCK_ADVISORY_KEY]);
+    await client.query('DELETE FROM payment_locks WHERE expires_at <= now()');
+    const active = await client.query(
+      `SELECT campaign_id, user_id, started_at, expires_at
+       FROM payment_locks
+       WHERE expires_at > now()
+       LIMIT 1`
+    );
+    if (active.rowCount) {
+      await client.query('ROLLBACK');
+      const lock = active.rows[0];
+      return {
+        busy: true,
+        sameUser: Number(lock.user_id) === Number(userId),
+        campaignId: Number(lock.campaign_id),
+        expiresAt: lock.expires_at,
+        waitSeconds: Math.max(1, Math.ceil((new Date(lock.expires_at).getTime() - Date.now()) / 1000))
+      };
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO campaigns
+        (user_id, platform, link, interactions, amount, payment_method, payment_reference, payment_status, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending','pending_payment')
+       RETURNING id`,
+      [userId, platform, link, interactions, amount, paymentMethod, paymentReference]
+    );
+    const campaignId = inserted.rows[0].id;
+    await client.query(
+      `INSERT INTO payment_locks (id, campaign_id, user_id, started_at, expires_at)
+       VALUES (1, $1, $2, now(), now() + ($3 * interval '1 second'))`,
+      [campaignId, userId, PAYMENT_LOCK_SECONDS]
+    );
+    await client.query('COMMIT');
+    return { busy: false, campaignId };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+const releasePaymentLock = (campaignId) =>
+  pool.query('DELETE FROM payment_locks WHERE campaign_id=$1', [campaignId]).catch(() => {});
 
 // Toutes les reponses SebPay sont enveloppees : { success, data, message }
 async function sebpayJson(method, endpoint, body) {
@@ -302,6 +372,7 @@ async function confirmCampaignPayment(campaignId, token, raw) {
         "INSERT INTO payments (campaign_id, amount, mf_token, status, raw) VALUES ($1,$2,$3,'paid',$4)",
         [campaignId, camp.amount, token || camp.mf_token, JSON.stringify(raw || {})]
       );
+      await client.query('DELETE FROM payment_locks WHERE campaign_id=$1', [campaignId]);
     }
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
@@ -446,6 +517,8 @@ router.get('/meta', h(async (req, res) => {
   const settings = await currentSettings();
   res.json({
     billingMode: settings.billingMode,
+    paymentMethod: settings.paymentMethod,
+    paymentLinkConfigured: Boolean(settings.sebpayPaymentLink),
     taskReward: effectiveReward(settings),
     pricePerInteraction: effectivePrice(settings),
     configuredTaskReward: settings.taskReward,
@@ -512,13 +585,22 @@ async function deploymentHealth() {
   ));
   checks.push(check(
     'Paiements SebPay',
-    settings.billingMode === 'free' || Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY),
-    settings.billingMode === 'free' || (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY) ? 'ok' : 'warning',
+    settings.billingMode === 'free'
+      || (settings.paymentMethod === 'link' ? isHttpUrl(settings.sebpayPaymentLink) : Boolean(SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY)),
+    settings.billingMode === 'free'
+      ? 'ok'
+      : (settings.paymentMethod === 'link'
+        ? (isHttpUrl(settings.sebpayPaymentLink) ? 'ok' : 'error')
+        : (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY ? 'ok' : 'warning')),
     settings.billingMode === 'free'
       ? 'Mode Free actif : aucun paiement SebPay n’est requis pour les campagnes.'
-      : (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
-        ? 'Clés SebPay détectées.'
-        : 'SEBPAY_PUBLIC_KEY et SEBPAY_SECRET_KEY manquent : les campagnes ne pourront pas être payées.'),
+      : (settings.paymentMethod === 'link'
+        ? (isHttpUrl(settings.sebpayPaymentLink)
+          ? 'Lien de paiement SebPay configuré.'
+          : 'Ajoutez un lien de paiement SebPay valide dans Configuration.')
+        : (SEBPAY_PUBLIC_KEY && SEBPAY_SECRET_KEY
+          ? 'Clés SebPay détectées.'
+          : 'SEBPAY_PUBLIC_KEY et SEBPAY_SECRET_KEY manquent : les campagnes ne pourront pas être payées.')),
     false
   ));
   checks.push(check(
@@ -597,6 +679,8 @@ router.get('/admin/settings', adminRequired, h(async (req, res) => {
   const settings = await currentSettings();
   res.json({
     billingMode: settings.billingMode,
+    paymentMethod: settings.paymentMethod,
+    sebpayPaymentLink: settings.sebpayPaymentLink,
     taskReward: settings.taskReward,
     pricePerInteraction: settings.pricePerInteraction,
     minCampaignAmount: settings.minCampaignAmount,
@@ -611,9 +695,20 @@ router.get('/admin/settings', adminRequired, h(async (req, res) => {
 
 router.post('/admin/settings', adminRequired, h(async (req, res) => {
   const body = req.body || {};
+  const current = await currentSettings();
   const billingMode = String(body.billingMode || '').trim().toLowerCase();
   if (!['paid', 'free'].includes(billingMode))
     return res.status(400).json({ error: 'Choisissez le mode Payant ou Free.' });
+  const paymentMethod = body.paymentMethod == null
+    ? current.paymentMethod
+    : String(body.paymentMethod || '').trim().toLowerCase();
+  if (!['api', 'link'].includes(paymentMethod))
+    return res.status(400).json({ error: 'Choisissez le paiement par API SebPay ou par lien SebPay.' });
+  const sebpayPaymentLink = body.sebpayPaymentLink == null
+    ? current.sebpayPaymentLink
+    : String(body.sebpayPaymentLink || '').trim();
+  if (paymentMethod === 'link' && !isHttpUrl(sebpayPaymentLink))
+    return res.status(400).json({ error: 'Ajoutez un lien de paiement SebPay valide (commençant par http:// ou https://).' });
   const taskReward = Number(body.taskReward);
   const pricePerInteraction = Number(body.pricePerInteraction);
   if (!Number.isFinite(taskReward) || taskReward <= 0 || !Number.isFinite(pricePerInteraction) || pricePerInteraction <= 0)
@@ -626,6 +721,8 @@ router.post('/admin/settings', adminRequired, h(async (req, res) => {
 
   const updates = [
     ['billing_mode', billingMode],
+    ['payment_method', paymentMethod],
+    ['sebpay_payment_link', sebpayPaymentLink],
     ['task_reward', taskReward],
     ['price_per_interaction', pricePerInteraction]
   ];
@@ -647,6 +744,8 @@ router.post('/admin/settings', adminRequired, h(async (req, res) => {
   res.json({
     ok: true,
     billingMode: settings.billingMode,
+    paymentMethod: settings.paymentMethod,
+    sebpayPaymentLink: settings.sebpayPaymentLink,
     taskReward: settings.taskReward,
     pricePerInteraction: settings.pricePerInteraction,
     groqConfigured: Boolean(settings.groqApiKey)
@@ -733,10 +832,11 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
   if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Nombre d\'interactions invalide.' });
   const freeMode = settings.billingMode === 'free';
+  const apiPayment = !freeMode && settings.paymentMethod === 'api';
   const amount = freeMode ? 0 : n * settings.pricePerInteraction;
   if (!freeMode && (!Number.isFinite(amount) || amount < settings.minCampaignAmount))
     return res.status(400).json({ error: 'Le montant minimum d’une campagne est de ' + settings.minCampaignAmount + ' FCFA.' });
-  if (!freeMode && (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY))
+  if (apiPayment && (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY))
     return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
   const me = await pool.query('SELECT nom, prenom, telephone, pays FROM users WHERE id = $1', [req.user.id]);
@@ -748,8 +848,8 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     const freeReference = 'KORABOOST-FREE-' + crypto.randomBytes(8).toString('hex');
     const ins = await pool.query(
       `INSERT INTO campaigns
-        (user_id, platform, link, interactions, amount, payment_reference, payment_status, status, link_confirmed_at)
-       VALUES ($1,$2,$3,$4,0,$5,'paid','pending_admin',now()) RETURNING id`,
+        (user_id, platform, link, interactions, amount, payment_method, payment_reference, payment_status, status, link_confirmed_at)
+       VALUES ($1,$2,$3,$4,0,'free',$5,'paid','pending_admin',now()) RETURNING id`,
       [req.user.id, platform, link, n, freeReference]
     );
     const campaignId = ins.rows[0].id;
@@ -760,6 +860,45 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
       free: true,
       payUrl: null,
       successUrl: '/success.html?campaign=' + encodeURIComponent(campaignId)
+    });
+  }
+
+  if (settings.paymentMethod === 'link') {
+    if (!isHttpUrl(settings.sebpayPaymentLink))
+      return res.status(500).json({ error: 'Le lien de paiement SebPay n’est pas configuré par l’administrateur.' });
+    const linkReference = 'KORABOOST-LINK-' + crypto.randomBytes(8).toString('hex');
+    const slot = await createPaymentCampaignWithLock({
+      userId: req.user.id, platform, link, interactions: n, amount,
+      paymentMethod: 'link', paymentReference: linkReference
+    });
+    if (slot.busy) {
+      return res.status(409).json({
+        error: slot.sameUser
+          ? 'Votre paiement est déjà en cours. Retournez sur la page de succès.'
+          : 'Veuillez patienter : quelqu’un effectue actuellement un paiement.',
+        paymentBusy: true,
+        sameUser: slot.sameUser,
+        campaignId: slot.sameUser ? slot.campaignId : null,
+        lockExpiresAt: slot.expiresAt,
+        waitSeconds: slot.waitSeconds
+      });
+    }
+    const campaignId = slot.campaignId;
+    const successUrl = PUBLIC_URL + '/success.html?campaign=' + encodeURIComponent(campaignId);
+    const payUrl = paymentLinkFor(settings.sebpayPaymentLink, {
+      campaign: campaignId,
+      amount,
+      external_reference: linkReference,
+      return_url: successUrl,
+      redirect_url: successUrl
+    });
+    return res.json({
+      campaignId,
+      amount,
+      paymentStatus: 'pending',
+      paymentMethod: 'link',
+      payUrl,
+      successUrl
     });
   }
 
@@ -789,12 +928,24 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     });
   }
 
-  const ins = await pool.query(
-    'INSERT INTO campaigns (user_id, platform, link, interactions, amount) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-    [req.user.id, platform, link, n, amount]
-  );
-  const campaignId = ins.rows[0].id;
-  const externalReference = 'KORABOOST-CAMPAIGN-' + campaignId + '-' + crypto.randomBytes(5).toString('hex');
+  const externalReference = 'KORABOOST-CAMPAIGN-' + crypto.randomBytes(12).toString('hex');
+  const slot = await createPaymentCampaignWithLock({
+    userId: req.user.id, platform, link, interactions: n, amount,
+    paymentMethod: 'api', paymentReference: externalReference
+  });
+  if (slot.busy) {
+    return res.status(409).json({
+      error: slot.sameUser
+        ? 'Votre paiement est déjà en cours. Retournez sur la page de succès.'
+        : 'Veuillez patienter : quelqu’un effectue actuellement un paiement.',
+      paymentBusy: true,
+      sameUser: slot.sameUser,
+      campaignId: slot.sameUser ? slot.campaignId : null,
+      lockExpiresAt: slot.expiresAt,
+      waitSeconds: slot.waitSeconds
+    });
+  }
+  const campaignId = slot.campaignId;
 
   const resp = await sebpayJson('POST', '/collections', {
     amount,
@@ -808,6 +959,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   });
   const payment = resp.data || {};
   if (!resp.ok || !payment.transaction_id) {
+    await releasePaymentLock(campaignId);
     await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
     const detail = resp.message || payment.message || 'impossible de créer le paiement.';
     return res.status(502).json({
@@ -815,8 +967,8 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     });
   }
   await pool.query(
-    'UPDATE campaigns SET mf_token=$2, payment_reference=$3, sebpay_transaction_id=$2 WHERE id=$1',
-    [campaignId, payment.transaction_id, externalReference]
+    'UPDATE campaigns SET mf_token=$2, payment_reference=$3, sebpay_transaction_id=$2, payment_provider_link=$4 WHERE id=$1',
+    [campaignId, payment.transaction_id, externalReference, payment.provider_link || null]
   );
   res.json({
     campaignId,
@@ -844,16 +996,21 @@ router.post('/sebpay/webhook', h(async (req, res) => {
       "UPDATE campaigns SET payment_status='rejected', status='rejected' WHERE id=$1 AND payment_status <> 'paid'",
       [camp.rows[0].id]
     );
+    await releasePaymentLock(camp.rows[0].id);
   }
   res.json({ received: true });
 }));
 
 router.get('/campaigns/:id/payment-status', authRequired, h(async (req, res) => {
+  await pool.query('DELETE FROM payment_locks WHERE expires_at <= now()');
   const r = await pool.query(
-    `SELECT c.id, c.platform, c.link, c.amount, c.interactions, c.status, c.payment_status,
+    `SELECT c.id, c.platform, c.link, c.amount, c.interactions, c.status, c.payment_status, c.payment_method,
             c.link_confirmed_at, c.payment_reference, c.sebpay_transaction_id,
+            pl.started_at AS lock_started_at, pl.expires_at AS lock_expires_at,
             (c.payment_reference LIKE 'KORABOOST-FREE-%') AS free
-     FROM campaigns c WHERE c.id=$1 AND c.user_id=$2`,
+     FROM campaigns c
+     LEFT JOIN payment_locks pl ON pl.campaign_id=c.id AND pl.expires_at > now()
+     WHERE c.id=$1 AND c.user_id=$2`,
     [req.params.id, req.user.id]
   );
   if (!r.rowCount) return res.status(404).json({ error: 'Campagne introuvable.' });
@@ -861,7 +1018,54 @@ router.get('/campaigns/:id/payment-status', authRequired, h(async (req, res) => 
   res.json({
     ...c,
     amount: Number(c.amount),
-    linkConfirmed: Boolean(c.link_confirmed_at)
+    linkConfirmed: Boolean(c.link_confirmed_at),
+    lockExpiresAt: c.lock_expires_at || null,
+    lockRemainingSeconds: c.lock_expires_at
+      ? Math.max(0, Math.ceil((new Date(c.lock_expires_at).getTime() - Date.now()) / 1000))
+      : 0
+  });
+}));
+
+// En mode paiement par lien, le client signale son retour après le délai
+// demandé. La campagne devient "claimed" : l'administrateur doit encore
+// vérifier le paiement dans SebPay avant de la valider.
+router.post('/campaigns/:id/payment-link-confirm', authRequired, h(async (req, res) => {
+  const r = await pool.query(
+    'SELECT * FROM campaigns WHERE id=$1 AND user_id=$2',
+    [req.params.id, req.user.id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'Campagne introuvable.' });
+  const campaign = r.rows[0];
+  if (campaign.payment_method !== 'link')
+    return res.status(409).json({ error: 'Cette campagne n’utilise pas le lien de paiement SebPay.' });
+  if (campaign.payment_status === 'claimed' || campaign.payment_status === 'paid') {
+    return res.json({
+      ...campaign,
+      amount: Number(campaign.amount),
+      linkConfirmed: Boolean(campaign.link_confirmed_at)
+    });
+  }
+  const ageSeconds = Math.floor((Date.now() - new Date(campaign.created_at).getTime()) / 1000);
+  if (ageSeconds < 180) {
+    return res.status(429).json({
+      error: 'Attendez encore ' + (180 - ageSeconds) + ' seconde(s) avant de confirmer.',
+      waitSeconds: 180 - ageSeconds
+    });
+  }
+  const claimed = await pool.query(
+    `UPDATE campaigns
+     SET payment_status='claimed', status='pending_admin',
+         link_confirmed_at=COALESCE(link_confirmed_at, now())
+     WHERE id=$1 AND user_id=$2 AND payment_method='link' AND payment_status='pending'
+     RETURNING *`,
+    [req.params.id, req.user.id]
+  );
+  if (!claimed.rowCount) return res.status(409).json({ error: 'Cette campagne a déjà été confirmée ou traitée.' });
+  await releasePaymentLock(req.params.id);
+  res.json({
+    ...claimed.rows[0],
+    amount: Number(claimed.rows[0].amount),
+    linkConfirmed: true
   });
 }));
 
@@ -886,7 +1090,8 @@ router.get('/campaigns/mine', authRequired, h(async (req, res) => {
   res.json(r.rows.map(c => ({
     ...c,
     amount: Number(c.amount),
-    free: String(c.payment_reference || '').startsWith('KORABOOST-FREE-')
+    free: c.payment_method === 'free',
+    linkPayment: c.payment_method === 'link'
   })));
 }));
 
@@ -1105,7 +1310,8 @@ router.get('/admin/campaigns', adminRequired, h(async (req, res) => {
   res.json(r.rows.map(c => ({
     ...c,
     amount: Number(c.amount),
-    free: String(c.payment_reference || '').startsWith('KORABOOST-FREE-')
+    free: c.payment_method === 'free',
+    linkPayment: c.payment_method === 'link'
   })));
 }));
 
@@ -1116,8 +1322,10 @@ router.post('/admin/campaigns/:id/decision', adminRequired, h(async (req, res) =
     await client.query('BEGIN');
     const c = await client.query('SELECT * FROM campaigns WHERE id=$1 FOR UPDATE', [req.params.id]);
     if (!c.rowCount) throw httpError(404, 'Campagne introuvable.');
-    if (c.rows[0].status !== 'pending_admin' || c.rows[0].payment_status !== 'paid')
+    if (c.rows[0].status !== 'pending_admin' || !['paid', 'claimed'].includes(c.rows[0].payment_status))
       throw httpError(409, 'Campagne non payable ou déjà traitée.');
+    if (approve && c.rows[0].payment_status !== 'paid')
+      throw httpError(409, 'Vérifiez d’abord le paiement SebPay avec le bouton de confirmation.');
     if (approve && !c.rows[0].link_confirmed_at)
       throw httpError(409, 'Le client doit confirmer le lien depuis success.html avant validation.');
     if (approve) {
@@ -1133,6 +1341,20 @@ router.post('/admin/campaigns/:id/decision', adminRequired, h(async (req, res) =
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+}));
+
+router.post('/admin/campaigns/:id/confirm-payment', adminRequired, h(async (req, res) => {
+  const r = await pool.query(
+    `UPDATE campaigns
+     SET payment_status='paid', status='pending_admin'
+     WHERE id=$1 AND payment_method='link' AND payment_status='claimed'
+     RETURNING id`,
+    [req.params.id]
+  );
+  if (!r.rowCount) return res.status(409).json({ error: 'Cette campagne n’attend pas une confirmation de paiement par lien.' });
+  await releasePaymentLock(req.params.id);
+  logAction(req.user.id, 'confirm_link_payment', 'campaign#' + req.params.id, 'Paiement vérifié dans SebPay');
+  res.json({ ok: true });
 }));
 
 router.get('/admin/submissions', adminRequired, h(async (req, res) => {
@@ -1173,7 +1395,7 @@ router.post('/admin/submissions/:id/review', adminRequired, h(async (req, res) =
   try {
     await client.query('BEGIN');
     const s = await client.query(
-      `SELECT s.*, t.campaign_id, c.payment_reference
+      `SELECT s.*, t.campaign_id, c.payment_method
        FROM task_submissions s
        JOIN tasks t ON t.id=s.task_id
        JOIN campaigns c ON c.id=t.campaign_id
@@ -1183,7 +1405,7 @@ router.post('/admin/submissions/:id/review', adminRequired, h(async (req, res) =
     if (!s.rowCount) throw httpError(404, 'Preuve introuvable.');
     if (s.rows[0].status !== 'pending') throw httpError(409, 'Cette preuve a déjà été traitée.');
     const sub = s.rows[0];
-    const reward = String(sub.payment_reference || '').startsWith('KORABOOST-FREE-')
+    const reward = sub.payment_method === 'free'
       ? 0
       : effectiveReward(settings);
     if (approve) {

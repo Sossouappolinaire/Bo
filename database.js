@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   link TEXT NOT NULL,
   interactions INT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
+  payment_method VARCHAR(20) NOT NULL DEFAULT 'api',
   mf_token VARCHAR(120),
   payment_reference VARCHAR(160),
   sebpay_transaction_id VARCHAR(120),
@@ -47,8 +48,18 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(160);
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'api';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_provider_link TEXT;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sebpay_transaction_id VARCHAR(120);
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS link_confirmed_at TIMESTAMPTZ;
+CREATE TABLE IF NOT EXISTS payment_locks (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  campaign_id INT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payment_locks_expires_at_idx ON payment_locks (expires_at);
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   campaign_id INT NOT NULL REFERENCES campaigns(id),

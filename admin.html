@@ -123,8 +123,9 @@ async function vDash(tab) {
       ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Demandé</th><th>Payé</th><th></th></tr>
       ${rows.map(c => `<tr><td>#${c.id}</td><td>${esc(c.prenom)} ${esc(c.nom)}<br><span class="muted">${esc(c.telephone)}</span></td>
         <td>${c.platform}</td><td><a href="${esc(c.link)}" target="_blank">lien</a></td>
-         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
-        <td><button class="btn btn-p btn-sm" onclick="decideCamp(${c.id},true)">Approuver</button>
+         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
+         <td>${c.linkPayment && c.payment_status === 'claimed' ? `<button class="btn btn-b btn-sm" onclick="confirmLinkPayment(${c.id})">Confirmer paiement</button>` : ''}
+             ${(!c.linkPayment || c.payment_status === 'paid' || c.free) ? '<button class="btn btn-p btn-sm" onclick="decideCamp(' + c.id + ',true)">Approuver</button>' : ''}
             <button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Refuser</button></td></tr>`).join('')}</table>`
       : '<p class="muted">Aucune campagne en attente.</p>'}
       <h3 style="margin:16px 0 10px">✅ Actives (${act.length})</h3>
@@ -187,6 +188,14 @@ async function vDash(tab) {
          <option value="free" ${settings.billingMode === 'free' ? 'selected' : ''}>Free — le client ne paie rien et personne ne reçoit de commission</option>
        </select>
        <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les campagnes sont enregistrées sans paiement SebPay.</p>
+       <label>Mode de paiement SebPay</label>
+       <select id="setting-payment-method">
+         <option value="api" ${settings.paymentMethod === 'api' ? 'selected' : ''}>API SebPay — paiement vérifié automatiquement par l’API</option>
+         <option value="link" ${settings.paymentMethod === 'link' ? 'selected' : ''}>Lien SebPay — rediriger le client vers un lien</option>
+       </select>
+       <label>Lien de paiement SebPay</label>
+       <input id="setting-sebpay-link" type="url" value="${esc(settings.sebpayPaymentLink || '')}" placeholder="https://...">
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, le client est redirigé vers cette adresse. Après 3 minutes sur la page de succès, il confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
        <div class="grid2">
          <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
            <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>
@@ -255,6 +264,15 @@ async function decideCamp(id, approve) {
   } catch (e) { msg(e.message, 'err'); }
 }
 
+async function confirmLinkPayment(id) {
+  if (!confirm('As-tu vérifié ce paiement dans SebPay ?')) return;
+  try {
+    await api('/admin/campaigns/' + id + '/confirm-payment', { method: 'POST', body: {} });
+    msg('✅ Paiement confirmé. La campagne peut maintenant être approuvée.', 'ok');
+    render('campagnes');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
 async function userStatus(id, action) {
   try {
     await api('/admin/users/' + id + '/status', { method: 'POST', body: { action } });
@@ -270,6 +288,8 @@ async function saveSettings() {
       method: 'POST',
       body: {
         billingMode: $('#setting-billing-mode').value,
+        paymentMethod: $('#setting-payment-method').value,
+        sebpayPaymentLink: $('#setting-sebpay-link').value.trim(),
         pricePerInteraction: Number($('#setting-price').value),
         taskReward: Number($('#setting-reward').value),
         minCampaignAmount: Number($('#setting-min-campaign').value),
@@ -290,6 +310,8 @@ async function clearGroqKey() {
       method: 'POST',
       body: {
         billingMode: $('#setting-billing-mode').value,
+        paymentMethod: $('#setting-payment-method').value,
+        sebpayPaymentLink: $('#setting-sebpay-link').value.trim(),
         pricePerInteraction: Number($('#setting-price').value),
         taskReward: Number($('#setting-reward').value),
         minCampaignAmount: Number($('#setting-min-campaign').value),

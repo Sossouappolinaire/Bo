@@ -55,6 +55,15 @@ le client peut envoyer son lien sans paiement SebPay, aucun numéro Mobile Money
 n'est demandé et aucune commission n'est versée aux utilisateurs. Les campagnes
 restent soumises à la validation administrateur avant d'être activées.
 
+Pour une campagne payante, l'onglet permet également de choisir entre **API
+SebPay** et **Lien SebPay**. En mode API, KoraBoost crée la collecte et reçoit
+son statut par webhook. En mode Lien, l'administrateur renseigne son lien de
+paiement SebPay ; le client est redirigé vers ce lien, puis revient sur
+`success.html`. La page impose trois minutes avant d'autoriser la confirmation
+du retour. Cette confirmation passe la campagne en attente de vérification :
+l'administrateur doit vérifier le paiement dans SebPay, cliquer sur
+**Confirmer paiement** dans la liste des campagnes, puis approuver la campagne.
+
 ## Activer l'assistant Groq
 
 Ajouter ces variables dans Render, dans un fichier `.env` local ou dans le
