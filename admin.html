@@ -108,7 +108,7 @@ async function vDash(tab) {
   tab = tab || 'stats';
   const st = await api('/admin/stats');
   const tabs = [
-    ['stats','📊 Statistiques'],['campagnes','📢 Campagnes'],['verifications','📸 Vérifications'],
+    ['stats','📊 Statistiques'],['campagnes','📢 Demandes de liens'],['verifications','📸 Vérifications'],
     ['retraits','💸 Retraits'],['users','👥 Utilisateurs'],['tx','💰 Transactions'],['system','🩺 Configuration']
   ];
   let body = '';
@@ -116,8 +116,8 @@ async function vDash(tab) {
     body = `<div class="stats">
       <div class="stat"><b>${st.utilisateurs}</b><span class="muted">Inscrits</span></div>
       <div class="stat"><b style="color:#4ade80">${st.actifs}</b><span class="muted">Actifs</span></div>
-      <div class="stat"><b style="color:#fbbf24">${st.campagnes_en_attente}</b><span class="muted">Campagnes à valider</span></div>
-      <div class="stat"><b>${st.campagnes_actives}</b><span class="muted">Campagnes actives</span></div>
+      <div class="stat"><b style="color:#fbbf24">${st.campagnes_en_attente}</b><span class="muted">Demandes à valider</span></div>
+      <div class="stat"><b>${st.campagnes_actives}</b><span class="muted">Demandes actives</span></div>
       <div class="stat"><b style="color:#fbbf24">${st.verifications}</b><span class="muted">Preuves à vérifier</span></div>
       <div class="stat"><b style="color:#fbbf24">${st.retraits_en_attente}</b><span class="muted">Retraits en attente</span></div>
       <div class="stat"><b>${fcfa(st.encaisse)}</b><span class="muted">Encaissé</span></div>
@@ -127,25 +127,25 @@ async function vDash(tab) {
   } else if (tab === 'campagnes') {
     const rows = await api('/admin/campaigns?status=pending_admin');
     const act = await api('/admin/campaigns?status=active');
-    body = `<h3 style="margin-bottom:10px">⏳ À valider (${rows.length})</h3>
-      ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Demandé</th><th>Payé</th><th></th></tr>
+    body = `<h3 style="margin-bottom:10px">⏳ Liens à valider (${rows.length})</h3>
+      ${rows.length ? `<table><tr><th>#</th><th>Client</th><th>Plateforme</th><th>Lien</th><th>Action</th><th>Tâche</th><th>Payé</th><th></th></tr>
       ${rows.map(c => `<tr><td>#${c.id}</td><td>${esc(c.prenom)} ${esc(c.nom)}<br><span class="muted">${esc(c.telephone)}</span></td>
         <td>${c.platform}</td><td><a href="${esc(c.link)}" target="_blank">lien</a></td>
-         <td>${c.interactions}</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
+         <td>${c.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>1 tâche</td><td>${c.free ? '<span class="badge b-g">🆓 FREE</span>' : c.linkPayment ? (c.payment_status === 'claimed' ? '<span class="badge b-w">🔎 À vérifier</span>' : '<span class="badge b-w">🔗 LIEN</span>') : fcfa(c.amount) + '<br><span class="badge b-ok">✅ PAYÉ</span>'}</td>
          <td>${c.linkPayment && c.payment_status === 'claimed' ? `<button class="btn btn-b btn-sm" onclick="confirmLinkPayment(${c.id})">Confirmer paiement</button>` : ''}
              ${(!c.linkPayment || c.payment_status === 'paid' || c.free) ? '<button class="btn btn-p btn-sm" onclick="decideCamp(' + c.id + ',true)">Approuver</button>' : ''}
             <button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Refuser</button></td></tr>`).join('')}</table>`
-      : '<p class="muted">Aucune campagne en attente.</p>'}
-      <h3 style="margin:16px 0 10px">✅ Actives (${act.length})</h3>
-      ${act.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Demandé</th><th>Fait</th><th></th></tr>
-      ${act.map(c => `<tr><td>#${c.id}</td><td>${c.platform}</td><td>${c.interactions}</td><td>${c.faits}/${c.interactions}</td>
+      : '<p class="muted">Aucun lien en attente.</p>'}
+      <h3 style="margin:16px 0 10px">✅ Demandes actives (${act.length})</h3>
+      ${act.length ? `<table><tr><th>#</th><th>Plateforme</th><th>Action</th><th>Tâche</th><th></th></tr>
+      ${act.map(c => `<tr><td>#${c.id}</td><td>${c.platform}</td><td>${c.interaction_type === 'comment' ? '💬 Commentaire' : '❤️ J’aime'}</td><td>${c.faits}/1</td>
         <td><button class="btn btn-r btn-sm" onclick="decideCamp(${c.id},false)">Suspendre</button></td></tr>`).join('')}</table>` : ''}`;
   } else if (tab === 'verifications') {
     const rows = await api('/admin/submissions?status=pending');
     body = `<h3 style="margin-bottom:10px">📸 Preuves à vérifier (${rows.length})</h3>
-      ${rows.length ? `<table><tr><th>#</th><th>Utilisateur</th><th>Campagne</th><th>Plateforme</th><th>Captures</th><th></th></tr>
+      ${rows.length ? `<table><tr><th>#</th><th>Utilisateur</th><th>Demande</th><th>Plateforme</th><th>Preuve</th><th></th></tr>
       ${rows.map(s => `<tr><td>${s.id}</td><td>${esc(s.prenom)} ${esc(s.nom)}<br><span class="muted">${esc(s.telephone)}</span></td>
-        <td>#${s.campaign_id}</td><td>${s.platform}</td><td>${s.captures}</td>
+        <td>#${s.campaign_id}</td><td>${s.platform}</td><td>${s.proofs}</td>
         <td><button class="btn btn-b btn-sm" onclick="viewSub(${s.id})">Voir</button></td></tr>`).join('')}</table>`
       : '<p class="muted">Rien à vérifier.</p>'}`;
   } else if (tab === 'retraits') {
@@ -189,13 +189,13 @@ async function vDash(tab) {
     </div>
      <div class="card">
        <h2 style="margin-bottom:6px">⚙️ Réglages métier</h2>
-       <p class="muted" style="margin-bottom:14px">Ces valeurs s’appliquent immédiatement aux nouvelles campagnes et aux validations de preuves.</p>
-       <label>Mode de facturation des campagnes</label>
+       <p class="muted" style="margin-bottom:14px">La règle est fixe : chaque lien client crée une seule tâche. Ces valeurs s’appliquent aux nouvelles demandes et aux validations de preuves.</p>
+       <label>Mode de facturation des demandes</label>
        <select id="setting-billing-mode">
          <option value="paid" ${settings.billingMode === 'paid' ? 'selected' : ''}>Payant — le client paie et l'utilisateur reçoit sa récompense</option>
          <option value="free" ${settings.billingMode === 'free' ? 'selected' : ''}>Free — le client ne paie rien et personne ne reçoit de commission</option>
        </select>
-       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les campagnes sont enregistrées sans paiement SebPay.</p>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode Free, le formulaire client ne demande aucun numéro Mobile Money et les demandes sont enregistrées sans paiement SebPay.</p>
        <label>Mode de paiement SebPay</label>
        <select id="setting-payment-method">
          <option value="api" ${settings.paymentMethod === 'api' ? 'selected' : ''}>API SebPay — paiement vérifié automatiquement par l’API</option>
@@ -203,15 +203,15 @@ async function vDash(tab) {
        </select>
        <label>Lien de paiement SebPay</label>
        <input id="setting-sebpay-link" type="url" value="${esc(settings.sebpayPaymentLink || '')}" placeholder="https://...">
-       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, SebPay s’ouvre dans un nouvel onglet et la page de succès reste ouverte dans KoraBoost. Après 3 minutes, le client confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver la campagne.</p>
+       <p class="muted" style="font-size:.82rem;margin-bottom:12px">En mode lien, SebPay s’ouvre dans un nouvel onglet et la page de succès reste ouverte dans KoraBoost. Après 3 minutes, le client confirme son retour ; tu vérifies ensuite le paiement dans SebPay avant d’approuver le lien.</p>
        <div class="grid2">
-         <div><label>Prix client par tâche (1 like + 5 commentaires), en FCFA</label>
+         <div><label>Prix client par tâche (1 action + 1 preuve), en FCFA</label>
            <input id="setting-price" type="number" min="0.01" step="0.01" value="${settings.pricePerInteraction}"></div>
          <div><label>Récompense utilisateur par tâche validée, en FCFA</label>
            <input id="setting-reward" type="number" min="0.01" step="0.01" value="${settings.taskReward}"></div>
        </div>
        <div class="grid2">
-         <div><label>Montant minimum d’une campagne, en FCFA</label>
+         <div><label>Montant minimum d’une demande, en FCFA</label>
            <input id="setting-min-campaign" type="number" min="0.01" step="0.01" value="${settings.minCampaignAmount}"></div>
          <div><label>Solde minimum pour un retrait, en FCFA</label>
            <input id="setting-min-withdrawal" type="number" min="0.01" step="0.01" value="${settings.minWithdrawal}"></div>
@@ -232,18 +232,18 @@ async function viewSub(id) {
   try {
     const [d, settings] = await Promise.all([api('/admin/submissions/' + id), api('/admin/settings')]);
     const s = d.submission, proofs = d.proofs;
-    const labels = { like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
+    const labels = { proof: '📸 Preuve unique de la tâche', like: '❤️ Like', comment1: '💬 Commentaire 1', comment2: '💬 Commentaire 2', comment3: '💬 Commentaire 3', comment4: '💬 Commentaire 4', comment5: '💬 Commentaire 5' };
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = `<div class="inner card">
-      <h3>📸 Preuve #${s.id} — ${esc(s.prenom)} ${esc(s.nom)} — Campagne #${s.campaign_id} (${s.platform})</h3>
-      <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Like : ✅ · Commentaires : 5 · Captures : ${proofs.length}</p>
+      <h3>📸 Preuve #${s.id} — ${esc(s.prenom)} ${esc(s.nom)} — ${s.interaction_type === 'comment' ? 'Commentaire' : 'J’aime'} (${s.platform})</h3>
+      <p><a href="${esc(s.link)}" target="_blank">Voir la publication</a> · Preuve reçue : ${proofs.length === 1 ? '✅ 1 fichier' : '⚠️ ' + proofs.length + ' fichiers'}</p>
       ${proofs.map(p => `<h4 style="margin-top:10px">${labels[p.kind] || p.kind}</h4><img src="${p.image}">`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
          <button class="btn btn-p" onclick="reviewSub(${s.id},true)">✅ Valider (${settings.billingMode === 'free' ? 'aucune commission' : '+' + settings.taskReward + ' FCFA'})</button>
         <select id="rej-reason" style="width:auto;flex:1;min-width:200px">
-          <option>Capture insuffisante</option><option>Commentaire manquant</option>
-          <option>Preuve illisible</option><option>Tâche incorrectement réalisée</option>
+          <option>Preuve insuffisante</option><option>Preuve illisible</option>
+          <option>Tâche incorrectement réalisée</option>
         </select>
         <button class="btn btn-r" onclick="reviewSub(${s.id},false)">❌ Refuser</button>
         <button class="btn btn-g" onclick="this.closest('.modal').remove()">Fermer</button>
@@ -267,7 +267,7 @@ async function decideCamp(id, approve) {
   const note = approve ? null : prompt('Motif du refus / suspension :') || '';
   try {
     await api('/admin/campaigns/' + id + '/decision', { method: 'POST', body: { approve, note } });
-    msg(approve ? '✅ Campagne approuvée, tâches créées.' : '❌ Campagne refusée/suspendue.', 'ok');
+    msg(approve ? '✅ Lien approuvé : une seule tâche est maintenant disponible.' : '❌ Demande refusée/suspendue.', 'ok');
     render();
   } catch (e) { msg(e.message, 'err'); }
 }

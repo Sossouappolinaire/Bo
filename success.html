@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Paiement confirmé — KoraBoost</title>
+  <title>Lien envoyé — KoraBoost</title>
   <style>
     :root { color-scheme: dark; --bg:#09111f; --panel:#111d31; --line:#263852; --text:#eff6ff; --muted:#a8b8d0; --accent:#6ee7b7; --warn:#f7c873; --danger:#ff8b8b; }
     * { box-sizing: border-box; }
@@ -117,7 +117,7 @@
       confirmButton.disabled = true;
       confirmButton.textContent = 'Confirmation envoyée';
       titleEl.textContent = 'Bravo, votre retour est enregistré !';
-      descriptionEl.textContent = 'L’administrateur doit vérifier le paiement dans SebPay avant d’approuver la campagne.';
+      descriptionEl.textContent = 'L’administrateur doit vérifier le paiement dans SebPay avant d’approuver le lien.';
       setStatus('Votre paiement est en attente de vérification par l’administrateur.', 'ok');
       if (countdownTimer) clearInterval(countdownTimer);
       return;
@@ -125,15 +125,15 @@
     confirmButton.disabled = data.payment_status !== 'paid' || data.linkConfirmed;
     confirmButton.textContent = data.linkConfirmed ? 'Lien confirmé' : 'Confirmer ce lien';
     if (data.payment_status === 'paid') {
-      titleEl.textContent = data.free ? 'Campagne gratuite enregistrée' : 'Bravo, votre paiement est confirmé !';
+      titleEl.textContent = data.free ? 'Demande enregistrée' : 'Bravo, votre paiement est confirmé !';
       descriptionEl.textContent = data.free
-        ? 'Votre campagne gratuite est enregistrée et sera vérifiée par l’administrateur.'
-        : 'Votre campagne est enregistrée. Vérifiez le lien Facebook ou TikTok avant son envoi à la validation.';
+        ? 'Votre lien est enregistré. Une seule tâche est en attente de validation par l’administrateur.'
+        : 'Votre lien est enregistré. L’administrateur vérifiera le paiement et validera une seule tâche pour ce lien.';
       setStatus(data.free ? 'Aucun paiement ni commission ne sera appliqué.' : (data.linkConfirmed ? 'Paiement confirmé et lien enregistré.' : 'Paiement confirmé par SebPay.'), 'ok');
       if (timer) clearInterval(timer);
     } else if (data.payment_status === 'rejected' || data.status === 'rejected') {
       titleEl.textContent = 'Paiement non confirmé';
-      descriptionEl.textContent = 'SebPay a refusé ou annulé cette transaction. Aucun traitement ne sera lancé pour cette campagne.';
+      descriptionEl.textContent = 'SebPay a refusé ou annulé cette transaction. Aucune tâche ne sera ouverte pour ce lien.';
       setStatus('Transaction refusée.', 'error');
       confirmButton.disabled = true;
       if (timer) clearInterval(timer);
@@ -170,7 +170,7 @@
       } catch (_) {}
     }
     if (!campaignId) {
-      setStatus('Référence de campagne absente. Retournez à la liste des campagnes pour reprendre le paiement.', 'error');
+      setStatus('Référence de demande absente. Retournez à la liste des demandes pour reprendre le paiement.', 'error');
       return;
     }
     try {

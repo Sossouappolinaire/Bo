@@ -66,7 +66,7 @@ const logAction = (adminId, action, target, detail) =>
 // Le verrou est persistant en PostgreSQL pour rester fiable avec plusieurs
 // instances Render. L'advisory lock protège uniquement la transaction de
 // création et évite deux paiements simultanés.
-async function createPaymentCampaignWithLock({ userId, platform, link, interactions, amount, paymentMethod, paymentReference }) {
+async function createPaymentCampaignWithLock({ userId, platform, link, interactionType, amount, paymentMethod, paymentReference }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -92,12 +92,18 @@ async function createPaymentCampaignWithLock({ userId, platform, link, interacti
 
     const inserted = await client.query(
       `INSERT INTO campaigns
-        (user_id, platform, link, interactions, amount, payment_method, payment_reference, payment_status, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending','pending_payment')
+        (user_id, platform, link, interaction_type, interactions, amount, payment_method, payment_reference, payment_status, status)
+       VALUES ($1,$2,$3,$4,1,$5,$6,$7,'pending','pending_payment')
        RETURNING id`,
-      [userId, platform, link, interactions, amount, paymentMethod, paymentReference]
+      [userId, platform, link, interactionType, amount, paymentMethod, paymentReference]
     );
     const campaignId = inserted.rows[0].id;
+    // Une demande de lien représente toujours une seule tâche. Elle reste
+    // invisible des exécutants tant que l'administrateur ne l'a pas validée.
+    await client.query(
+      "INSERT INTO tasks (campaign_id, status) VALUES ($1, 'pending_admin')",
+      [campaignId]
+    );
     await client.query(
       `INSERT INTO payment_locks (id, campaign_id, user_id, started_at, expires_at)
        VALUES (1, $1, $2, now(), now() + ($3 * interval '1 second'))`,
@@ -776,7 +782,7 @@ router.post('/assistant', h(async (req, res) => {
         {
           role: 'system',
           content: `Tu es Kora, l'assistant chaleureux et précis de KoraBoost, une plateforme francophone de tâches sociales.
- Réponds toujours en français simple, en 2 à 5 phrases maximum. Aide les utilisateurs à comprendre : inscription, tâches Facebook/TikTok (1 like et 5 commentaires), envoi des 6 captures, validation, solde, retrait minimum de ${settings.minWithdrawal} FCFA, et aide les clients à lancer une campagne.
+ Réponds toujours en français simple, en 2 à 5 phrases maximum. Aide les utilisateurs à comprendre : inscription, tâches Facebook/TikTok, envoi d'une preuve unique par tâche, validation, solde, retrait minimum de ${settings.minWithdrawal} FCFA, et aide les clients à lancer une campagne.
 Ne promets jamais un paiement ou une validation. Ne demande jamais de mot de passe, clé API, code secret ou information bancaire complète. Si la question concerne un dossier précis, demande de contacter l’administrateur depuis les informations de leur compte. Si tu ne sais pas, dis-le clairement et propose l’étape sûre suivante.`
         },
         ...messages
@@ -823,18 +829,22 @@ router.get('/sebpay/operators', h(async (req, res) => {
 router.post('/campaigns', authRequired, h(async (req, res) => {
   const settings = await currentSettings();
   const {
-    link, interactions, operator, otp_code: otpCode,
+    link, interaction_type: requestedInteractionType, operator, otp_code: otpCode,
     country_code: bodyCountryCode, phone: bodyPhone
   } = req.body || {};
-  const n = parseInt(interactions, 10);
   const platform = detectPlatform(link);
+  const interactionType = ['like', 'comment'].includes(String(requestedInteractionType || '').trim().toLowerCase())
+    ? String(requestedInteractionType).trim().toLowerCase()
+    : 'like';
+  // Le nombre de tâches n'est plus fourni par le client : un lien envoyé
+  // correspond toujours à une seule tâche.
+  const n = 1;
   if (!link || !platform) return res.status(400).json({ error: 'Lien Facebook ou TikTok invalide.' });
-  if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: 'Nombre d\'interactions invalide.' });
   const freeMode = settings.billingMode === 'free';
   const apiPayment = !freeMode && settings.paymentMethod === 'api';
-  const amount = freeMode ? 0 : n * settings.pricePerInteraction;
-  if (!freeMode && (!Number.isFinite(amount) || amount < settings.minCampaignAmount))
-    return res.status(400).json({ error: 'Le montant minimum d’une campagne est de ' + settings.minCampaignAmount + ' FCFA.' });
+  // Le seuil historique reste appliqué au prix de la demande, mais il ne
+  // multiplie jamais le nombre de tâches.
+  const amount = freeMode ? 0 : Math.max(settings.pricePerInteraction, settings.minCampaignAmount);
   if (apiPayment && (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY))
     return res.status(500).json({ error: 'Paiement non configuré (clés SebPay manquantes côté serveur).' });
 
@@ -847,11 +857,12 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
     const freeReference = 'KORABOOST-FREE-' + crypto.randomBytes(8).toString('hex');
     const ins = await pool.query(
       `INSERT INTO campaigns
-        (user_id, platform, link, interactions, amount, payment_method, payment_reference, payment_status, status, link_confirmed_at)
-       VALUES ($1,$2,$3,$4,0,'free',$5,'paid','pending_admin',now()) RETURNING id`,
-      [req.user.id, platform, link, n, freeReference]
+        (user_id, platform, link, interaction_type, interactions, amount, payment_method, payment_reference, payment_status, status, link_confirmed_at)
+       VALUES ($1,$2,$3,$4,1,0,'free',$5,'paid','pending_admin',now()) RETURNING id`,
+      [req.user.id, platform, link, interactionType, freeReference]
     );
     const campaignId = ins.rows[0].id;
+    await pool.query("INSERT INTO tasks (campaign_id, status) VALUES ($1, 'pending_admin')", [campaignId]);
     return res.json({
       campaignId,
       amount: 0,
@@ -867,7 +878,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
       return res.status(500).json({ error: 'Le lien de paiement SebPay n’est pas configuré par l’administrateur.' });
     const linkReference = 'KORABOOST-LINK-' + crypto.randomBytes(8).toString('hex');
     const slot = await createPaymentCampaignWithLock({
-      userId: req.user.id, platform, link, interactions: n, amount,
+      userId: req.user.id, platform, link, interactionType, amount,
       paymentMethod: 'link', paymentReference: linkReference
     });
     if (slot.busy) {
@@ -929,7 +940,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
 
   const externalReference = 'KORABOOST-CAMPAIGN-' + crypto.randomBytes(12).toString('hex');
   const slot = await createPaymentCampaignWithLock({
-    userId: req.user.id, platform, link, interactions: n, amount,
+    userId: req.user.id, platform, link, interactionType, amount,
     paymentMethod: 'api', paymentReference: externalReference
   });
   if (slot.busy) {
@@ -959,6 +970,7 @@ router.post('/campaigns', authRequired, h(async (req, res) => {
   const payment = resp.data || {};
   if (!resp.ok || !payment.transaction_id) {
     await releasePaymentLock(campaignId);
+    await pool.query('DELETE FROM tasks WHERE campaign_id = $1', [campaignId]);
     await pool.query('DELETE FROM campaigns WHERE id = $1', [campaignId]);
     const detail = resp.message || payment.message || 'impossible de créer le paiement.';
     return res.status(502).json({
@@ -1098,7 +1110,7 @@ router.get('/campaigns/mine', authRequired, h(async (req, res) => {
 // ========================= TACHES (UTILISATEUR) ===============
 router.get('/tasks', authRequired, h(async (req, res) => {
   const r = await pool.query(
-    `SELECT t.id, c.platform, c.link, c.id AS campaign_id
+    `SELECT t.id, c.platform, c.link, c.interaction_type, c.id AS campaign_id
      FROM tasks t JOIN campaigns c ON c.id = t.campaign_id
      WHERE t.status='open' AND c.status='active'
        AND NOT EXISTS (SELECT 1 FROM task_submissions s WHERE s.task_id=t.id AND s.user_id=$1)
@@ -1108,17 +1120,14 @@ router.get('/tasks', authRequired, h(async (req, res) => {
   res.json(r.rows);
 }));
 
-const PROOF_KINDS = ['like', 'comment1', 'comment2', 'comment3', 'comment4', 'comment5'];
-
 router.post('/tasks/:id/submit', authRequired, h(async (req, res) => {
   const taskId = parseInt(req.params.id, 10);
-  const proofs = ((req.body || {}).proofs) || [];
-  const kinds = proofs.map(p => p && p.kind);
-  for (const k of PROOF_KINDS)
-    if (!kinds.includes(k)) return res.status(400).json({ error: 'Il faut les 6 captures : 1 like + 5 commentaires.' });
-  for (const p of proofs)
-    if (typeof p.image !== 'string' || !p.image.startsWith('data:image/'))
-      return res.status(400).json({ error: 'Captures invalides (images uniquement).' });
+  const proofs = Array.isArray((req.body || {}).proofs) ? (req.body || {}).proofs : [];
+  if (proofs.length !== 1)
+    return res.status(400).json({ error: 'Chaque tâche doit contenir exactement une preuve.' });
+  const proof = proofs[0];
+  if (!proof || typeof proof.image !== 'string' || !proof.image.startsWith('data:image/'))
+    return res.status(400).json({ error: 'La preuve doit être une image valide.' });
 
   const client = await pool.connect();
   try {
@@ -1138,8 +1147,10 @@ router.post('/tasks/:id/submit', authRequired, h(async (req, res) => {
 
     const s = await client.query('INSERT INTO task_submissions (task_id, user_id) VALUES ($1,$2) RETURNING id', [taskId, req.user.id]);
     const sid = s.rows[0].id;
-    for (const p of proofs)
-      await client.query('INSERT INTO proofs (submission_id, kind, image) VALUES ($1,$2,$3)', [sid, p.kind, p.image]);
+    await client.query(
+      "INSERT INTO proofs (submission_id, kind, image) VALUES ($1,'proof',$2)",
+      [sid, proof.image]
+    );
     await client.query("UPDATE tasks SET status='pending', assigned_to=$2 WHERE id=$1", [taskId, req.user.id]);
     await client.query('COMMIT');
     res.json({ ok: true, submissionId: sid });
@@ -1148,7 +1159,7 @@ router.post('/tasks/:id/submit', authRequired, h(async (req, res) => {
 
 router.get('/tasks/history', authRequired, h(async (req, res) => {
   const r = await pool.query(
-    `SELECT s.id, s.status, s.reason, s.created_at, t.id AS task_id, c.platform, c.link, c.id AS campaign_id
+    `SELECT s.id, s.status, s.reason, s.created_at, t.id AS task_id, c.platform, c.link, c.interaction_type, c.id AS campaign_id
      FROM task_submissions s
      JOIN tasks t ON t.id = s.task_id
      JOIN campaigns c ON c.id = t.campaign_id
@@ -1302,7 +1313,8 @@ router.get('/admin/campaigns', adminRequired, h(async (req, res) => {
   const status = ['pending_admin', 'active', 'completed', 'rejected', 'pending_payment'].includes(req.query.status) ? req.query.status : 'pending_admin';
   const r = await pool.query(
     `SELECT c.*, u.nom, u.prenom, u.telephone,
-       (SELECT count(*) FROM tasks t WHERE t.campaign_id=c.id AND t.status='approved')::int AS faits
+       (SELECT count(*) FROM tasks t WHERE t.campaign_id=c.id AND t.status='approved')::int AS faits,
+       (SELECT count(*) FROM tasks t WHERE t.campaign_id=c.id)::int AS task_count
      FROM campaigns c JOIN users u ON u.id=c.user_id
      WHERE c.status=$1 ORDER BY c.id DESC LIMIT 200`,
     [status]
@@ -1330,12 +1342,21 @@ router.post('/admin/campaigns/:id/decision', adminRequired, h(async (req, res) =
       throw httpError(409, 'Le client doit confirmer le lien depuis success.html avant validation.');
     if (approve) {
       await client.query("UPDATE campaigns SET status='active', admin_note=$2 WHERE id=$1", [req.params.id, note || null]);
-      await client.query(
-        'INSERT INTO tasks (campaign_id) SELECT $1 FROM generate_series(1, $2)',
-        [req.params.id, c.rows[0].interactions]
+      // Une approbation ouvre exactement la tâche créée avec le lien. La
+      // clause de secours protège aussi les anciennes demandes importées.
+      const task = await client.query(
+        "UPDATE tasks SET status='open', assigned_to=NULL WHERE campaign_id=$1 AND status='pending_admin' RETURNING id",
+        [req.params.id]
       );
+      const existingTask = task.rowCount
+        ? task
+        : await client.query("SELECT id FROM tasks WHERE campaign_id=$1 LIMIT 1", [req.params.id]);
+      if (!existingTask.rowCount) {
+        await client.query("INSERT INTO tasks (campaign_id, status) VALUES ($1, 'open')", [req.params.id]);
+      }
     } else {
       await client.query("UPDATE campaigns SET status='rejected', admin_note=$2 WHERE id=$1", [req.params.id, note || null]);
+      await client.query("UPDATE tasks SET status='rejected' WHERE campaign_id=$1 AND status='pending_admin'", [req.params.id]);
     }
     logAction(req.user.id, approve ? 'approve_campaign' : 'reject_campaign', 'campaign#' + req.params.id, note || '');
     await client.query('COMMIT');
@@ -1362,8 +1383,8 @@ router.get('/admin/submissions', adminRequired, h(async (req, res) => {
   const r = await pool.query(
     `SELECT s.id, s.status, s.reason, s.created_at, s.reviewed_at,
             u.nom, u.prenom, u.telephone,
-            t.id AS task_id, c.id AS campaign_id, c.platform, c.link,
-            (SELECT count(*) FROM proofs p WHERE p.submission_id=s.id)::int AS captures
+           t.id AS task_id, c.id AS campaign_id, c.platform, c.link, c.interaction_type,
+            (SELECT count(*) FROM proofs p WHERE p.submission_id=s.id)::int AS proofs
      FROM task_submissions s
      JOIN tasks t ON t.id = s.task_id
      JOIN campaigns c ON c.id = t.campaign_id
@@ -1376,7 +1397,7 @@ router.get('/admin/submissions', adminRequired, h(async (req, res) => {
 
 router.get('/admin/submissions/:id', adminRequired, h(async (req, res) => {
   const s = await pool.query(
-    `SELECT s.*, u.nom, u.prenom, u.telephone, t.id AS task_id, c.id AS campaign_id, c.platform, c.link
+    `SELECT s.*, u.nom, u.prenom, u.telephone, t.id AS task_id, c.id AS campaign_id, c.platform, c.link, c.interaction_type
      FROM task_submissions s
      JOIN tasks t ON t.id = s.task_id
      JOIN campaigns c ON c.id = t.campaign_id

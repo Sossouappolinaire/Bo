@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   user_id INT NOT NULL REFERENCES users(id),
   platform VARCHAR(20) NOT NULL,
   link TEXT NOT NULL,
+  interaction_type VARCHAR(20) NOT NULL DEFAULT 'like',
   interactions INT NOT NULL,
   amount NUMERIC(12,2) NOT NULL,
   payment_method VARCHAR(20) NOT NULL DEFAULT 'api',
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS payment_provider_link TEXT;
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sebpay_transaction_id VARCHAR(120);
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS link_confirmed_at TIMESTAMPTZ;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS interaction_type VARCHAR(20) NOT NULL DEFAULT 'like';
 CREATE TABLE IF NOT EXISTS payment_locks (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   campaign_id INT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
